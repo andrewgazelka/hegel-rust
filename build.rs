@@ -122,14 +122,14 @@ fn ensure_uv(cache_dir: &PathBuf) -> PathBuf {
         .expect("Failed to run curl for uv install script");
 
     if !status.success() {
-        panic!(
-            "Failed to install uv (exit code: {:?})",
-            status.code()
-        );
+        panic!("Failed to install uv (exit code: {:?})", status.code());
     }
 
     if !uv_bin.exists() {
-        panic!("uv binary not found at {} after installation", uv_bin.display());
+        panic!(
+            "uv binary not found at {} after installation",
+            uv_bin.display()
+        );
     }
 
     eprintln!("cargo:warning=Installed uv: {}", uv_bin.display());

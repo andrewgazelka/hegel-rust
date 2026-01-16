@@ -18,11 +18,3 @@ hegel-derive = { path = "hegel-derive" }
 tempfile = "3"
 
 [dev-dependencies]
-
-[[test]]
-name = "property_tests"
-path = "tests/property_tests.rs"
-
-[[example]]
-name = "embedded_test"
-path = "examples/embedded_test.rs"
