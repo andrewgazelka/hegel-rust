@@ -3,26 +3,9 @@
 use super::{generate_from_schema, Generate};
 use serde_json::{json, Value};
 
-// ============================================================================
-// Unit Generator
-// ============================================================================
-
-/// Generator that always produces unit `()`.
-pub struct UnitGenerator;
-
-impl Generate<()> for UnitGenerator {
-    fn generate(&self) {
-        // Unit type needs no generation - just return ()
-    }
-
-    fn schema(&self) -> Option<Value> {
-        Some(json!({"type": "null"}))
-    }
-}
-
 /// Generate unit values.
-pub fn units() -> UnitGenerator {
-    UnitGenerator
+pub fn unit() -> JustGenerator<()> {
+    just(())
 }
 
 // ============================================================================

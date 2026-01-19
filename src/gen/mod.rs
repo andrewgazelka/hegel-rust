@@ -15,7 +15,7 @@ pub use combinators::{one_of, optional, sampled_from, sampled_from_slice, BoxedG
 pub use fixed_dict::fixed_dicts;
 pub use formats::{dates, datetimes, domains, emails, ip_addresses, times, urls};
 pub use numeric::{floats, integers};
-pub use primitives::{booleans, just, just_any, units};
+pub use primitives::{booleans, just, just_any, unit};
 pub use strings::{from_regex, text};
 pub use tuples::{tuples, tuples3};
 
