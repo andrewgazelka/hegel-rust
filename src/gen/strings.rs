@@ -27,11 +27,11 @@ impl Generate<String> for TextGenerator {
         let mut schema = json!({"type": "string"});
 
         if self.min_size > 0 {
-            schema["min_length"] = json!(self.min_size);
+            schema["min_size"] = json!(self.min_size);
         }
 
         if let Some(max) = self.max_size {
-            schema["max_length"] = json!(max);
+            schema["max_size"] = json!(max);
         }
 
         Some(schema)

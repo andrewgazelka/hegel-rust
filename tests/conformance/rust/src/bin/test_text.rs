@@ -6,8 +6,8 @@ use std::env;
 
 #[derive(Deserialize)]
 struct Params {
-    min_length: usize,
-    max_length: usize,
+    min_size: usize,
+    max_size: usize,
 }
 
 #[derive(Serialize)]
@@ -29,8 +29,8 @@ fn main() {
 
     Hegel::new(move || {
         let value = gen::text()
-            .with_min_size(params.min_length)
-            .with_max_size(params.max_length)
+            .with_min_size(params.min_size)
+            .with_max_size(params.max_size)
             .generate();
         // Report length in Unicode codepoints, not bytes
         let length = value.chars().count();
