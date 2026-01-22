@@ -100,7 +100,7 @@ fn ensure_uv(cache_dir: &PathBuf) -> PathBuf {
     }
 
     let uv_dir = cache_dir.join("uv");
-    let uv_bin = uv_dir.join("bin").join("uv");
+    let uv_bin = uv_dir.join("uv");
 
     // Check cache
     if uv_bin.exists() {
