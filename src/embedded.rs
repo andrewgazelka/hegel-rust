@@ -1,8 +1,9 @@
 use crate::gen::{
-    clear_embedded_connection, is_last_run, set_embedded_connection, set_is_last_run, set_mode,
-    HegelMode,
+    clear_embedded_connection, set_embedded_connection, set_is_last_run, set_mode,
+    take_generated_values, HegelMode,
 };
 use serde_json::{json, Value};
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::{self, catch_unwind, AssertUnwindSafe};
@@ -13,6 +14,16 @@ use tempfile::TempDir;
 
 static PANIC_HOOK_INIT: Once = Once::new();
 
+thread_local! {
+    /// Stores panic info captured by our panic hook: (thread_name, location)
+    static LAST_PANIC_INFO: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+/// Get and clear the last panic info (thread_name, location).
+fn take_panic_info() -> Option<(String, String)> {
+    LAST_PANIC_INFO.with(|info| info.borrow_mut().take())
+}
+
 // Panic unconditionally prints to stderr, even if it's caught later. This results in
 // messy output during shrinking. To avoid this, we replace the panic hook with our
 // own that suppresses the printing except for the final replay.
@@ -20,12 +31,18 @@ static PANIC_HOOK_INIT: Once = Once::new();
 // This is called once per process, the first time any hegel test runs.
 fn init_panic_hook() {
     PANIC_HOOK_INIT.call_once(|| {
-        let original_hook = panic::take_hook();
-        panic::set_hook(Box::new(move |info| {
-            // Only print panic output on the final replay run
-            if is_last_run() {
-                original_hook(info);
-            }
+        panic::set_hook(Box::new(|info| {
+            // Capture thread name and location for later use
+            let thread_name = std::thread::current()
+                .name()
+                .unwrap_or("<unnamed>")
+                .to_string();
+            let location = info
+                .location()
+                .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            LAST_PANIC_INFO.with(|l| *l.borrow_mut() = Some((thread_name, location)));
+            // Don't print anything - we'll format the output ourselves
         }));
     });
 }
@@ -288,6 +305,17 @@ fn handle_connection<F: FnMut()>(stream: UnixStream, test_fn: &mut F, verbosity:
                     "result": "reject"
                 })
             } else {
+                if is_last {
+                    let (thread_name, location) =
+                        take_panic_info().expect("panic hook should have captured info");
+                    eprintln!("thread '{}' panicked at {}:", thread_name, location);
+                    eprintln!("{}", msg);
+
+                    for value in take_generated_values() {
+                        eprintln!("{}", value);
+                    }
+                }
+
                 json!({
                     "type": "test_result",
                     "result": "fail",

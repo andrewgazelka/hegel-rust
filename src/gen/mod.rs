@@ -58,6 +58,8 @@ thread_local! {
     static MODE: Cell<HegelMode> = const { Cell::new(HegelMode::External) };
     /// Whether this is the last run (for note() output in embedded mode)
     static IS_LAST_RUN: Cell<bool> = const { Cell::new(false) };
+    /// Buffer for generated values during final replay
+    static GENERATED_VALUES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Get the current execution mode.
@@ -78,6 +80,16 @@ pub(crate) fn set_mode(mode: HegelMode) {
 /// Set the is_last_run flag (used by embedded module).
 pub(crate) fn set_is_last_run(is_last: bool) {
     IS_LAST_RUN.with(|r| r.set(is_last));
+}
+
+/// Buffer a generated value for later output
+fn buffer_generated_value(value: &str) {
+    GENERATED_VALUES.with(|v| v.borrow_mut().push(value.to_string()));
+}
+
+/// Take all buffered generated values, clearing the buffer.
+pub(crate) fn take_generated_values() -> Vec<String> {
+    GENERATED_VALUES.with(|v| std::mem::take(&mut *v.borrow_mut()))
 }
 
 /// Print a note message.
@@ -306,9 +318,8 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T
         close_connection();
     }
 
-    // Auto-log generated value during final replay (counterexample)
     if is_last_run() {
-        eprintln!("Generated: {}", result);
+        buffer_generated_value(&format!("Generated: {}", result));
     }
 
     serde_json::from_value(result.clone()).unwrap_or_else(|e| {

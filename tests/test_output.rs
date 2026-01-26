@@ -21,26 +21,14 @@ fn main() {
     let output = project.run();
     assert!(!output.status.success());
 
-    // Expected output format (trimmed):
-    //   Generated: 0
-    //
-    //   thread 'main' (12345) panicked at src/main.rs:7:9:
+    // For example:
+    //   thread 'main' panicked at src/main.rs:7:9:
     //   intentional failure: 0
-    //   note: run with `RUST_BACKTRACE=1` ...
-    //   Test failed: intentional failure: 0
-    //
-    //   thread 'main' (12345) panicked at .../embedded.rs:...:
-    //   Hegel test failed (exit code 1)
+    //   Generated: 0
     let expected = Regex::new(concat!(
-        r"(?s)",
-        r"^Generated: -?\d+\n",
-        r"\nthread '.*' \(\d+\) panicked at [^\n]+:\n",
+        r"^thread '.*' panicked at src/main\.rs:\d+:\d+:\n",
         r"intentional failure: -?\d+\n",
-        r"note: run with [^\n]+\n",
-        r"Test failed: intentional failure: -?\d+\n",
-        r"\nthread '.*' \(\d+\) panicked at [^\n]+:\n",
-        r"Hegel test failed \(exit code 1\)",
-        r"$",
+        r"Generated: -?\d+$",
     ))
     .unwrap();
 
