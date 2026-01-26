@@ -36,9 +36,11 @@ impl From<serde_json::Value> for HegelValue {
             serde_json::Value::Array(arr) => {
                 HegelValue::Array(arr.into_iter().map(HegelValue::from).collect())
             }
-            serde_json::Value::Object(map) => {
-                HegelValue::Object(map.into_iter().map(|(k, v)| (k, HegelValue::from(v))).collect())
-            }
+            serde_json::Value::Object(map) => HegelValue::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, HegelValue::from(v)))
+                    .collect(),
+            ),
         }
     }
 }
