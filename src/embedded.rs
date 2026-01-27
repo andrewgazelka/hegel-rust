@@ -1,119 +1,31 @@
 use crate::gen::{
-    clear_embedded_connection, set_embedded_connection, set_is_last_run, take_generated_values,
+    clear_embedded_connection, set_embedded_connection, set_is_last_run, set_mode,
+    take_generated_values, HegelMode,
 };
+use crate::protocol::{
+    cbor_to_json, json_to_cbor, Channel, Connection,
+    VERSION_NEGOTIATION_MESSAGE, VERSION_NEGOTIATION_OK,
+};
+use ciborium::Value as CborValue;
 use serde_json::{json, Value};
-use std::backtrace::{Backtrace, BacktraceStatus};
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixListener;
 use std::panic::{self, catch_unwind, AssertUnwindSafe};
-use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Once;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Once};
 use tempfile::TempDir;
 
 static PANIC_HOOK_INIT: Once = Once::new();
 
 thread_local! {
-    /// Stores panic info captured by our panic hook: (thread_name, thread_id, location, backtrace)
-    static LAST_PANIC_INFO: RefCell<Option<(String, String, String, Backtrace)>> = const { RefCell::new(None) };
+    /// Stores panic info captured by our panic hook: (thread_name, location)
+    static LAST_PANIC_INFO: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
 }
 
-/// Get and clear the last panic info (thread_name, thread_id, location, backtrace).
-fn take_panic_info() -> Option<(String, String, String, Backtrace)> {
+/// Get and clear the last panic info (thread_name, location).
+fn take_panic_info() -> Option<(String, String)> {
     LAST_PANIC_INFO.with(|info| info.borrow_mut().take())
-}
-
-/// Format a backtrace, optionally filtering to "short" format.
-///
-/// Short format shows only frames between `__rust_end_short_backtrace` and
-/// `__rust_begin_short_backtrace` markers, matching the default Rust panic handler.
-/// Frame numbers are renumbered to start at 0.
-fn format_backtrace(bt: &Backtrace, full: bool) -> String {
-    let backtrace_str = format!("{}", bt);
-
-    if full {
-        return backtrace_str;
-    }
-
-    // Filter to short backtrace: keep lines between the markers
-    // Frame groups look like:
-    //    N: function::name
-    //              at /path/to/file.rs:123:45
-    let lines: Vec<&str> = backtrace_str.lines().collect();
-    let mut start_idx = 0;
-    let mut end_idx = lines.len();
-
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("__rust_end_short_backtrace") {
-            // Skip past this frame (find the next frame number)
-            for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
-                if next_line
-                    .trim_start()
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-                {
-                    start_idx = j;
-                    break;
-                }
-            }
-        }
-        if line.contains("__rust_begin_short_backtrace") {
-            // Find the start of this frame (the line with the frame number)
-            for (j, prev_line) in lines
-                .iter()
-                .enumerate()
-                .take(i + 1)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-            {
-                if prev_line
-                    .trim_start()
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-                {
-                    end_idx = j;
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    // Renumber frames starting at 0
-    let filtered: Vec<&str> = lines[start_idx..end_idx].to_vec();
-    let mut new_frame_num = 0usize;
-    let mut result = Vec::new();
-
-    for line in filtered {
-        let trimmed = line.trim_start();
-        if trimmed
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-        {
-            // This is a frame number line like "   8: function_name"
-            // Find where the number ends (at the colon)
-            if let Some(colon_pos) = trimmed.find(':') {
-                let rest = &trimmed[colon_pos..];
-                // Preserve original indentation style (right-aligned numbers)
-                result.push(format!("{:>4}{}", new_frame_num, rest));
-                new_frame_num += 1;
-            } else {
-                result.push(line.to_string());
-            }
-        } else {
-            result.push(line.to_string());
-        }
-    }
-
-    result.join("\n")
 }
 
 // Panic unconditionally prints to stderr, even if it's caught later. This results in
@@ -124,24 +36,16 @@ fn format_backtrace(bt: &Backtrace, full: bool) -> String {
 fn init_panic_hook() {
     PANIC_HOOK_INIT.call_once(|| {
         panic::set_hook(Box::new(|info| {
-            // Capture thread name, ID, and location for later use
-            let current = std::thread::current();
-            let thread_name = current.name().unwrap_or("<unnamed>").to_string();
-            // ThreadId's Debug format is "ThreadId(N)" - extract just the number
-            let thread_id = format!("{:?}", current.id())
-                .trim_start_matches("ThreadId(")
-                .trim_end_matches(')')
+            // Capture thread name and location for later use
+            let thread_name = std::thread::current()
+                .name()
+                .unwrap_or("<unnamed>")
                 .to_string();
             let location = info
                 .location()
                 .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
                 .unwrap_or_else(|| "<unknown>".to_string());
-
-            // Capture backtrace - will have status Disabled if RUST_BACKTRACE not set
-            let backtrace = Backtrace::capture();
-
-            LAST_PANIC_INFO
-                .with(|l| *l.borrow_mut() = Some((thread_name, thread_id, location, backtrace)));
+            LAST_PANIC_INFO.with(|l| *l.borrow_mut() = Some((thread_name, location)));
             // Don't print anything - we'll format the output ourselves
         }));
     });
@@ -258,11 +162,12 @@ where
     ///
     /// This function:
     /// 1. Creates a Unix socket server
-    /// 2. Spawns the hegel CLI as a subprocess
-    /// 3. Accepts connections from hegel (one per test case)
-    /// 4. Runs the test function for each test case
-    /// 5. Reports results back to hegel
-    /// 6. Panics if any test case fails
+    /// 2. Spawns the hegeld as a subprocess
+    /// 3. Accepts the connection from hegeld
+    /// 4. Handles test case events from hegeld
+    /// 5. Runs the test function for each test case
+    /// 6. Reports results back to hegeld
+    /// 7. Panics if any test case fails
     ///
     /// # Panics
     ///
@@ -280,17 +185,11 @@ where
         // Create Unix socket server
         let listener = UnixListener::bind(&socket_path).expect("Failed to bind socket");
 
-        // Set non-blocking so we can check if hegel exited
-        listener
-            .set_nonblocking(true)
-            .expect("Failed to set non-blocking");
-
         // Build hegel command
         let hegel_path = self.hegel_path.as_deref().unwrap_or(HEGEL_BINARY_PATH);
         let mut cmd = Command::new(hegel_path);
         cmd.arg("--client-mode")
             .arg(&socket_path)
-            .arg("--no-tui")
             .arg("--verbosity")
             .arg(self.verbosity.as_str());
 
@@ -299,150 +198,206 @@ where
 
         cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
+        if self.verbosity == Verbosity::Debug {
+            eprintln!("Starting hegeld: {:?}", cmd);
+        }
+
         let mut child = cmd.spawn().expect("Failed to spawn hegel");
 
-        // Accept connections until hegel exits
+        // Accept the single connection from hegeld
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                let _ = child.kill();
+                panic!("Failed to accept connection: {}", e);
+            }
+        };
+
+        // Create connection and perform version negotiation
+        let connection = Connection::new(stream);
+
+        // Handle version negotiation (as server accepting from hegeld)
+        let control = connection.control_channel();
+        let (req_id, payload) = control.receive_request().expect("Failed to receive handshake");
+
+        if payload != VERSION_NEGOTIATION_MESSAGE {
+            panic!("Invalid version negotiation message: {:?}", String::from_utf8_lossy(&payload));
+        }
+
+        control.send_response(req_id, VERSION_NEGOTIATION_OK.to_vec())
+            .expect("Failed to send version ack");
+
+        if self.verbosity == Verbosity::Debug {
+            eprintln!("Version negotiation complete");
+        }
+
+        // Run the test
         let mut test_fn = self.test_fn;
         let verbosity = self.verbosity;
+        let got_interesting = Arc::new(AtomicBool::new(false));
 
+        // Send run_test request
+        let run_test_msg = json_to_cbor(&json!({
+            "command": "run_test",
+            "name": "test",
+            "test_cases": test_cases,
+        }));
+
+        let pending_id = control.send_request(cbor_encode(&run_test_msg))
+            .expect("Failed to send run_test");
+
+        // Handle test_case events until test_done
         loop {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    handle_connection(stream, &mut test_fn, verbosity);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No connection ready, check if hegel exited
-                    match child.try_wait() {
-                        Ok(Some(status)) => {
-                            handle_exit(status);
-                            break;
-                        }
-                        Ok(None) => {
-                            // Hegel still running, wait a bit
-                            std::thread::sleep(Duration::from_millis(10));
-                        }
-                        Err(e) => panic!("Error waiting for hegel: {}", e),
+            let (event_id, event_payload) = control.receive_request()
+                .expect("Failed to receive event");
+
+            let event: Value = cbor_decode(&event_payload);
+            let event_type = event.get("event").and_then(|e| e.as_str());
+
+            if verbosity == Verbosity::Debug {
+                eprintln!("Received event: {:?}", event);
+            }
+
+            match event_type {
+                Some("test_case") => {
+                    let channel_id = event.get("channel")
+                        .and_then(|c| c.as_u64())
+                        .expect("Missing channel id") as u32;
+                    let is_final = event.get("is_final")
+                        .and_then(|f| f.as_bool())
+                        .unwrap_or(false);
+
+                    let test_channel = connection.connect_channel(channel_id);
+
+                    let (status, origin) = run_test_case(
+                        &connection,
+                        &test_channel,
+                        &mut test_fn,
+                        is_final,
+                        verbosity,
+                        &got_interesting,
+                    );
+
+                    // Send mark_complete (unless we hit overflow/StopTest)
+                    if status != "OVERFLOW" {
+                        let mark_complete = json_to_cbor(&json!({
+                            "command": "mark_complete",
+                            "status": status,
+                            "origin": origin,
+                        }));
+                        let _ = test_channel.request(&mark_complete);
                     }
+
+                    // Ack the test_case event
+                    control.send_response(event_id, cbor_encode(&json_to_cbor(&json!({"result": null}))))
+                        .expect("Failed to ack test_case");
                 }
-                Err(e) => panic!("Accept failed: {}", e),
+                Some("test_done") => {
+                    // Ack the test_done event
+                    control.send_response(event_id, cbor_encode(&json_to_cbor(&json!({"result": null}))))
+                        .expect("Failed to ack test_done");
+                    break;
+                }
+                _ => {
+                    // Unknown event, just ack it
+                    control.send_response(event_id, cbor_encode(&json_to_cbor(&json!({"result": null}))))
+                        .expect("Failed to ack event");
+                }
             }
         }
-    }
-}
 
-/// Handle the final exit status from hegel.
-fn handle_exit(status: ExitStatus) {
-    if !status.success() {
-        // Hegel found a failure
-        if let Some(code) = status.code() {
-            panic!("Hegel test failed (exit code {})", code);
-        } else {
-            panic!("Hegel terminated by signal");
+        // Get the run_test result
+        let result_payload = control.receive_response(pending_id)
+            .expect("Failed to receive run_test result");
+        let result: Value = cbor_decode(&result_payload);
+
+        if verbosity == Verbosity::Debug {
+            eprintln!("Test result: {:?}", result);
+        }
+
+        let passed = result.get("passed").and_then(|p| p.as_bool()).unwrap_or(true);
+
+        // Wait for hegeld to exit
+        let _ = child.wait().expect("Failed to wait for hegel");
+
+        if !passed || got_interesting.load(Ordering::SeqCst) {
+            let failure = result.get("failure").cloned().unwrap_or(json!(null));
+            let exc_type = failure.get("exc_type")
+                .and_then(|e| e.as_str())
+                .unwrap_or("AssertionError");
+            let filename = failure.get("filename")
+                .and_then(|f| f.as_str())
+                .unwrap_or("");
+            let lineno = failure.get("lineno")
+                .and_then(|l| l.as_u64())
+                .unwrap_or(0);
+
+            panic!("Property test failed: {} at {}:{}", exc_type, filename, lineno);
         }
     }
 }
 
-/// Handle a single connection from hegel (one test case).
-fn handle_connection<F: FnMut()>(stream: UnixStream, test_fn: &mut F, verbosity: Verbosity) {
-    // Stream accepted from non-blocking listener may inherit non-blocking mode on macOS.
-    // Set it back to blocking for reliable reads.
-    stream
-        .set_nonblocking(false)
-        .expect("Failed to set stream to blocking mode");
-
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let mut writer = stream.try_clone().unwrap();
-
-    // Read handshake
-    let mut line = String::new();
-    if reader.read_line(&mut line).is_err() {
-        return; // Connection closed
-    }
-
-    let handshake: Value = match serde_json::from_str(&line) {
-        Ok(v) => v,
-        Err(_) => return, // Invalid handshake
-    };
-
-    let is_last = handshake
-        .get("is_last_run")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    if verbosity == Verbosity::Debug {
-        eprintln!("Handshake received: is_last_run={}", is_last);
-    }
-
+/// Run a single test case.
+fn run_test_case<F: FnMut()>(
+    connection: &Arc<Connection>,
+    test_channel: &Channel,
+    test_fn: &mut F,
+    is_final: bool,
+    _verbosity: Verbosity,
+    got_interesting: &Arc<AtomicBool>,
+) -> (String, Option<Value>) {
     // Set thread-local state
-    set_is_last_run(is_last);
-    set_embedded_connection(stream);
-
-    // Send handshake_ack
-    let ack = json!({"type": "handshake_ack"});
-    if writeln!(writer, "{}", ack).is_err() {
-        clear_embedded_connection();
-        return;
-    }
-    let _ = writer.flush();
+    set_mode(HegelMode::Embedded);
+    set_is_last_run(is_final);
+    set_embedded_connection(Arc::clone(connection), test_channel.clone_for_embedded());
 
     // Run test in catch_unwind
     let result = catch_unwind(AssertUnwindSafe(test_fn));
 
-    // Clear connection before sending result (test is done generating)
+    // Clear connection before returning (test is done generating)
     clear_embedded_connection();
+    set_mode(HegelMode::External);
 
-    // Send test result
-    let result_msg = match result {
-        Ok(()) => json!({"type": "test_result", "result": "pass"}),
+    match result {
+        Ok(()) => ("VALID".to_string(), None),
         Err(e) => {
             // Check if this is an assume(false) panic
             let msg = panic_message(&e);
             if msg == REJECT_MARKER {
-                json!({
-                    "type": "test_result",
-                    "result": "reject"
-                })
+                ("INVALID".to_string(), None)
             } else {
-                if is_last {
-                    let (thread_name, thread_id, location, backtrace) =
-                        take_panic_info().expect("panic hook should have captured info");
-                    eprintln!(
-                        "thread '{}' ({}) panicked at {}:",
-                        thread_name, thread_id, location
-                    );
+                got_interesting.store(true, Ordering::SeqCst);
+
+                // Take panic info once and use for both display and origin
+                let panic_info = take_panic_info();
+                let (thread_name, location) = panic_info
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+
+                if is_final {
+                    eprintln!("thread '{}' panicked at {}:", thread_name, location);
                     eprintln!("{}", msg);
 
                     for value in take_generated_values() {
                         eprintln!("{}", value);
                     }
-
-                    if backtrace.status() == BacktraceStatus::Captured {
-                        let is_full = std::env::var("RUST_BACKTRACE")
-                            .map(|v| v == "full")
-                            .unwrap_or(false);
-                        let formatted = format_backtrace(&backtrace, is_full);
-                        eprintln!("stack backtrace:\n{}", formatted);
-                        if !is_full {
-                            eprintln!("note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.");
-                        }
-                    }
                 }
 
-                json!({
-                    "type": "test_result",
-                    "result": "fail",
-                    "message": msg
-                })
+                // Extract origin info from the same panic info
+                let origin = {
+                    let parts: Vec<&str> = location.split(':').collect();
+                    json!({
+                        "exc_type": "Panic",
+                        "filename": parts.first().unwrap_or(&""),
+                        "lineno": parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
+                    })
+                };
+
+                ("INTERESTING".to_string(), Some(origin))
             }
         }
-    };
-
-    if verbosity == Verbosity::Debug {
-        eprintln!("Sending result: {}", result_msg);
     }
-
-    let _ = writeln!(writer, "{}", result_msg);
-    let _ = writer.flush();
 }
 
 /// Extract a message from a panic payload.
@@ -454,4 +409,17 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     } else {
         "Unknown panic".to_string()
     }
+}
+
+/// Encode a CBOR value to bytes.
+fn cbor_encode(value: &CborValue) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).expect("CBOR encoding failed");
+    bytes
+}
+
+/// Decode CBOR bytes to a JSON value.
+fn cbor_decode(bytes: &[u8]) -> Value {
+    let cbor: CborValue = ciborium::from_reader(bytes).expect("CBOR decoding failed");
+    cbor_to_json(&cbor)
 }

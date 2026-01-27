@@ -1,5 +1,5 @@
 use super::{
-    discardable_group, generate_from_schema, group, integers, labels, request_from_schema, Generate,
+    discardable_group, generate_from_schema, group, integers, labels, Generate,
 };
 use serde_json::{json, Value};
 use std::marker::PhantomData;
@@ -17,7 +17,7 @@ where
     F: Fn(T) -> U + Send + Sync,
 {
     fn generate(&self) -> U {
-        (self.f)(self.source.generate())
+        group(labels::MAPPED, || (self.f)(self.source.generate()))
     }
 
     fn schema(&self) -> Option<Value> {
@@ -365,9 +365,7 @@ where
         } else {
             // Compositional fallback
             group(labels::OPTIONAL, || {
-                let is_some: bool =
-                    serde_json::from_value(request_from_schema(&json!({"type": "boolean"})))
-                        .unwrap_or(false);
+                let is_some: bool = generate_from_schema(&json!({"type": "boolean"}));
                 if is_some {
                     Some(self.inner.generate())
                 } else {

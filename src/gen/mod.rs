@@ -42,11 +42,39 @@ pub(crate) mod exit_codes {
     pub const SOCKET_ERROR: i32 = 134;
 }
 use std::cell::{Cell, RefCell};
-use std::io::{BufRead, BufReader, Write};
 use std::marker::PhantomData;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+use crate::protocol::{cbor_to_json, json_to_cbor, negotiate_version, Channel, Connection};
+
+// ============================================================================
+// Mode Management
+// ============================================================================
+
+/// Operating mode for the SDK.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HegelMode {
+    /// SDK connects to a running hegel server (external process runs tests)
+    #[default]
+    External,
+    /// SDK accepts connections from hegel (embedded in test binary)
+    Embedded,
+}
+
+thread_local! {
+    static MODE: Cell<HegelMode> = const { Cell::new(HegelMode::External) };
+}
+
+/// Get the current operating mode.
+pub fn current_mode() -> HegelMode {
+    MODE.with(|m| m.get())
+}
+
+/// Set the operating mode (used by embedded module).
+pub(crate) fn set_mode(mode: HegelMode) {
+    MODE.with(|m| m.set(mode));
+}
 
 // ============================================================================
 // State Management (Thread-Local)
@@ -92,13 +120,12 @@ pub fn note(message: &str) {
 // Socket Communication with Thread-Local Connection
 // ============================================================================
 
-static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Thread-local connection state.
-/// Connection exists if and only if span_depth > 0.
+/// Thread-local connection state using the binary protocol.
 pub(crate) struct ConnectionState {
-    writer: UnixStream,
-    reader: BufReader<UnixStream>,
+    /// Keep the connection alive (actual I/O goes through channel)
+    #[allow(dead_code)]
+    connection: Arc<Connection>,
+    channel: Channel,
     span_depth: usize,
 }
 
@@ -110,9 +137,85 @@ fn is_debug() -> bool {
     std::env::var("HEGEL_DEBUG").is_ok()
 }
 
+fn get_socket_path() -> String {
+    std::env::var("HEGEL_SOCKET").expect("HEGEL_SOCKET environment variable not set")
+}
+
+/// Check if we have an active connection.
+fn is_connected() -> bool {
+    CONNECTION.with(|conn| conn.borrow().is_some())
+}
+
+/// Get the current span depth.
+fn get_span_depth() -> usize {
+    CONNECTION.with(|conn| {
+        conn.borrow()
+            .as_ref()
+            .map(|s| s.span_depth)
+            .unwrap_or(0)
+    })
+}
+
+/// Open a connection. Panics if already connected.
+pub(crate) fn open_connection() {
+    CONNECTION.with(|conn| {
+        let mut conn = conn.borrow_mut();
+        assert!(
+            conn.is_none(),
+            "open_connection called while already connected"
+        );
+
+        let socket_path = get_socket_path();
+        let stream = match UnixStream::connect(&socket_path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "Failed to connect to Hegel socket at {}: {}",
+                    socket_path, e
+                );
+                std::process::exit(exit_codes::SOCKET_ERROR);
+            }
+        };
+
+        let connection = Connection::new(stream);
+
+        // Perform version negotiation
+        if let Err(e) = negotiate_version(&connection) {
+            eprintln!("Version negotiation failed: {}", e);
+            std::process::exit(exit_codes::SOCKET_ERROR);
+        }
+
+        // Get the control channel for sending requests
+        let channel = connection.control_channel();
+
+        *conn = Some(ConnectionState {
+            connection,
+            channel,
+            span_depth: 0,
+        });
+    });
+}
+
+/// Close the connection. Panics if not connected or if spans are still open.
+pub(crate) fn close_connection() {
+    CONNECTION.with(|conn| {
+        let mut conn = conn.borrow_mut();
+        let state = conn
+            .as_ref()
+            .expect("close_connection called while not connected");
+        assert_eq!(
+            state.span_depth, 0,
+            "close_connection called with {} unclosed span(s)",
+            state.span_depth
+        );
+        *conn = None;
+    });
+}
+
 /// Set the connection from an already-connected stream (used by embedded module).
 /// This is used when the SDK creates a server and accepts connections from hegel.
-pub(crate) fn set_embedded_connection(stream: UnixStream) {
+/// The channel parameter is the test case channel assigned by the server.
+pub(crate) fn set_embedded_connection(connection: Arc<Connection>, channel: Channel) {
     CONNECTION.with(|conn| {
         let mut conn = conn.borrow_mut();
         assert!(
@@ -120,14 +223,9 @@ pub(crate) fn set_embedded_connection(stream: UnixStream) {
             "set_embedded_connection called while already connected"
         );
 
-        let writer = stream.try_clone().unwrap_or_else(|e| {
-            panic!("Failed to clone socket: {}", e);
-        });
-        let reader = BufReader::new(stream);
-
         *conn = Some(ConnectionState {
-            writer,
-            reader,
+            connection,
+            channel,
             span_depth: 0,
         });
     });
@@ -161,68 +259,96 @@ pub(crate) fn decrement_span_depth() {
     });
 }
 
+/// Custom error for StopTest (overflow) condition.
+#[derive(Debug)]
+pub struct StopTestError;
+
+impl std::fmt::Display for StopTestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Server ran out of data (StopTest)")
+    }
+}
+
+impl std::error::Error for StopTestError {}
+
 /// Send a request and receive a response over the thread-local connection.
-pub(crate) fn send_request(command: &str, payload: &Value) -> Value {
+/// Returns Err(StopTestError) if the server sends an overflow error.
+pub(crate) fn send_request(command: &str, payload: &Value) -> Result<Value, StopTestError> {
     let debug = is_debug();
-    let request_id = REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
-    let request = json!({
-        "id": request_id,
-        "command": command,
-        "payload": payload
-    });
-    let message = format!("{}\n", request);
+
+    // Build the CBOR request message
+    let mut request_map = serde_json::Map::new();
+    request_map.insert("command".to_string(), Value::String(command.to_string()));
+
+    // Merge payload fields into the request
+    if let Value::Object(obj) = payload {
+        for (k, v) in obj {
+            request_map.insert(k.clone(), v.clone());
+        }
+    }
+
+    let request = Value::Object(request_map);
+    let cbor_request = json_to_cbor(&request);
 
     if debug {
-        eprint!("REQUEST: {}", message);
+        eprintln!("REQUEST: {:?}", request);
     }
 
     CONNECTION.with(|conn| {
-        let mut conn = conn.borrow_mut();
+        let conn = conn.borrow();
         let state = conn
-            .as_mut()
+            .as_ref()
             .expect("send_request called without active connection");
 
-        if let Err(e) = state.writer.write_all(message.as_bytes()) {
-            eprintln!("Failed to write to Hegel socket: {}", e);
-            std::process::exit(exit_codes::SOCKET_ERROR);
-        }
+        let result = state.channel.request(&cbor_request);
 
-        let mut response = String::new();
-        if let Err(e) = state.reader.read_line(&mut response) {
-            eprintln!("Failed to read from Hegel socket: {}", e);
-            std::process::exit(exit_codes::SOCKET_ERROR);
-        }
-
-        if debug {
-            eprint!("RESPONSE: {}", response);
-        }
-
-        let parsed: Value = match serde_json::from_str(&response) {
-            Ok(v) => v,
-            Err(e) => {
-                panic!(
-                    "hegel: failed to parse server response as JSON: {}\nResponse: {}",
-                    e, response
-                );
+        match result {
+            Ok(cbor_response) => {
+                let response = cbor_to_json(&cbor_response);
+                if debug {
+                    eprintln!("RESPONSE: {:?}", response);
+                }
+                Ok(response)
             }
-        };
-
-        // Verify request ID matches
-        let response_id = parsed.get("id").and_then(|v| v.as_u64());
-        crate::assume(response_id == Some(request_id));
-        crate::assume(parsed.get("error").is_none());
-
-        parsed.get("result").cloned().unwrap_or(Value::Null)
+            Err(e) => {
+                let error_msg = e.to_string();
+                if error_msg.contains("overflow") || error_msg.contains("StopTest") {
+                    if debug {
+                        eprintln!("RESPONSE: StopTest/overflow");
+                    }
+                    Err(StopTestError)
+                } else {
+                    eprintln!("Failed to communicate with Hegel: {}", e);
+                    std::process::exit(exit_codes::SOCKET_ERROR);
+                }
+            }
+        }
     })
 }
 
-pub(crate) fn request_from_schema(schema: &Value) -> Value {
-    send_request("generate", schema)
+pub(crate) fn request_from_schema(schema: &Value) -> Result<Value, StopTestError> {
+    send_request("generate", &json!({"schema": schema}))
 }
 
 /// Generate a value from a schema.
 pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T {
-    let result = request_from_schema(schema);
+    // In embedded mode, connection is already set - don't try to open/close
+    let need_connection = !is_connected() && current_mode() == HegelMode::External;
+    if need_connection {
+        open_connection();
+    }
+
+    let result = match request_from_schema(schema) {
+        Ok(v) => v,
+        Err(StopTestError) => {
+            // Server ran out of data - reject this test case
+            if need_connection {
+                close_connection();
+            }
+            crate::assume(false);
+            unreachable!("assume(false) should not return")
+        }
+    };
 
     if is_last_run() {
         buffer_generated_value(&format!("Generated: {}", result));
@@ -244,7 +370,13 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T
 /// which improves shrinking. Call `stop_span()` when done.
 pub fn start_span(label: u64) {
     increment_span_depth();
-    send_request("start_span", &json!({"label": label}));
+    if let Err(StopTestError) = send_request("start_span", &json!({"label": label})) {
+        decrement_span_depth();
+        if get_span_depth() == 0 && current_mode() == HegelMode::External {
+            close_connection();
+        }
+        crate::assume(false);
+    }
 }
 
 /// Stop the current span.
@@ -253,7 +385,13 @@ pub fn start_span(label: u64) {
 /// (e.g., because a filter rejected it).
 pub fn stop_span(discard: bool) {
     decrement_span_depth();
-    send_request("stop_span", &json!({"discard": discard}));
+    // Ignore StopTest errors from stop_span - we're already closing
+    let _ = send_request("stop_span", &json!({"discard": discard}));
+    // Only close connection in external mode - in embedded mode, the
+    // connection is managed by the embedded module
+    if get_span_depth() == 0 && current_mode() == HegelMode::External {
+        close_connection();
+    }
 }
 
 // ============================================================================
@@ -306,6 +444,8 @@ pub mod labels {
     pub const FILTER: u64 = 12;
     pub const ENUM_VARIANT: u64 = 13;
     pub const SAMPLED_FROM: u64 = 14;
+    /// For .map() transformations (distinct from MAP which is for collections)
+    pub const MAPPED: u64 = 15;
 }
 
 // ============================================================================

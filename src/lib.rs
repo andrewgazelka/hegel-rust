@@ -205,8 +205,9 @@
 //!
 //! Set `HEGEL_DEBUG=1` to enable debug logging of requests/responses.
 
-pub mod embedded;
+pub(crate) mod embedded;
 pub mod gen;
+pub(crate) mod protocol;
 
 pub use gen::Generate;
 
