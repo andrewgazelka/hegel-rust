@@ -16,6 +16,9 @@ use std::process::Command;
 fn main() {
     // make our installed uv work under nix + madness:
     // https://github.com/antithesishq/madness
+    //
+    // note that this is now the default in more recent madness
+    // versions, so we can eventually remove this
     std::env::set_var("MADNESS_ALLOW_LDD", "1");
 
     let hegel_path = ensure_hegel();
