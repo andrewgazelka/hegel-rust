@@ -9,10 +9,11 @@ This is the Rust SDK for Hegel, a universal property-based testing framework. Th
 ## Build & Test Commands
 
 ```bash
-just test     # cargo test
-just format   # cargo fmt
-just docs     # cargo doc --open
-cargo test test_name  # Run single test
+just test                           # cargo test
+just format                         # cargo fmt
+just docs                           # cargo doc --open --all-features
+cargo test test_name                # Run single test
+cargo test --all-features           # Run tests including optional features
 ```
 
 ## Crate Structure
@@ -21,7 +22,7 @@ cargo test test_name  # Run single test
 hegel-rust/
 ├── src/
 │   ├── lib.rs          # Public API: hegel(), Hegel builder, assume(), note()
-│   ├── embedded.rs     # Embedded mode: spawns hegel CLI, manages socket server
+│   ├── embedded.rs     # Spawns hegel CLI, manages socket server
 │   └── gen/            # Generator implementations
 │       ├── mod.rs      # Generate trait, socket communication, thread-local state
 │       ├── primitives.rs   # unit(), booleans(), just(), just_any()
@@ -33,23 +34,41 @@ hegel-rust/
 │       ├── combinators.rs  # one_of!(), optional(), sampled_from(), BoxedGenerator
 │       ├── fixed_dict.rs   # fixed_dicts() for JSON objects
 │       ├── default.rs      # DefaultGenerator trait implementations
-│       └── macros.rs       # one_of!(), derive_generator!() macros
-└── hegel-derive/       # Proc macro crate for #[derive(Generate)]
-    └── src/lib.rs      # Derives generators for structs and enums
+│       ├── macros.rs       # one_of!(), derive_generator!() macros
+│       ├── binary.rs       # binary() for Vec<u8> generation
+│       ├── random.rs       # randoms() for RNG generation (requires "rand" feature)
+│       └── value.rs        # HegelValue wrapper for NaN/Infinity handling
+├── hegel-derive/       # Proc macro crate for #[derive(Generate)]
+│   └── src/lib.rs      # Derives generators for structs and enums
+└── build.rs            # Auto-installs hegel CLI via uv if not on PATH
 ```
+
+## Feature Flags
+
+- **`rand`**: Enables `gen::randoms()` for generating `rand::RngCore` implementations
+
+## Environment Variables
+
+- `HEGEL_DEBUG=1`: Log all socket requests/responses to stderr
 
 ## Architecture
 
-### Execution Modes
+### How It Works
 
-1. **Embedded Mode** (default): The SDK spawns the `hegel` CLI as a subprocess. The test binary creates a Unix socket server, and hegel connects to run test cases. Used when calling `hegel::hegel()` or `Hegel::new().run()`. The build script automatically installs Python and hegel into a local venv, so no external setup is required.
+The SDK spawns the `hegel` CLI as a subprocess with `--client-mode`. The test binary creates a Unix socket server, and hegel connects for each test case. The build script (`build.rs`) automatically installs Python and hegel into cargo's `OUT_DIR/hegel` via uv if not found on PATH.
 
-2. **External Mode**: The `hegel` CLI runs the test binary as a subprocess and provides the socket. The SDK connects as a client. Used when running tests via `hegel run ./test-binary`.
+### Protocol
+
+Each test case follows this handshake:
+1. Hegel connects to the SDK's socket
+2. Hegel sends: `{"is_last_run": bool}` (is_last_run=true on final replay for output)
+3. SDK responds: `{"type": "handshake_ack"}`
+4. SDK runs test, communicating via `generate`/`start_span`/`stop_span` commands
+5. SDK sends result: `{"type": "test_result", "result": "pass"|"fail"|"reject", ...}`
 
 ### Thread-Local State
 
 The SDK uses thread-local storage for:
-- `MODE`: Current execution mode (External or Embedded)
 - `IS_LAST_RUN`: Whether this is the final replay for counterexample output
 - `CONNECTION`: The active socket connection with span depth tracking
 

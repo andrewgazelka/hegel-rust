@@ -36,14 +36,6 @@ pub(crate) use strings::TextGenerator;
 
 use serde_json::{json, Value};
 
-/// The execution mode for the Hegel SDK.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum HegelMode {
-    #[default]
-    External,
-    Embedded,
-}
-
 pub(crate) mod exit_codes {
     #[allow(dead_code)] // Reserved for future use
     pub const TEST_FAILURE: i32 = 1;
@@ -57,31 +49,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 // ============================================================================
-// Mode and State Management (Thread-Local)
+// State Management (Thread-Local)
 // ============================================================================
 
 thread_local! {
-    /// Current execution mode
-    static MODE: Cell<HegelMode> = const { Cell::new(HegelMode::External) };
-    /// Whether this is the last run (for note() output in embedded mode)
+    /// Whether this is the last run (for note() output)
     static IS_LAST_RUN: Cell<bool> = const { Cell::new(false) };
     /// Buffer for generated values during final replay
     static GENERATED_VALUES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Get the current execution mode.
-pub(crate) fn current_mode() -> HegelMode {
-    MODE.with(|m| m.get())
-}
-
 /// Check if this is the last run.
 pub(crate) fn is_last_run() -> bool {
     IS_LAST_RUN.with(|r| r.get())
-}
-
-/// Set the current execution mode (used by embedded module).
-pub(crate) fn set_mode(mode: HegelMode) {
-    MODE.with(|m| m.set(mode));
 }
 
 /// Set the is_last_run flag (used by embedded module).
@@ -101,16 +81,10 @@ pub(crate) fn take_generated_values() -> Vec<String> {
 
 /// Print a note message.
 ///
-/// In external mode, this always prints to stderr.
-/// In embedded mode, this only prints on the last run.
+/// Only prints on the last run (final replay for counterexample output).
 pub fn note(message: &str) {
-    match current_mode() {
-        HegelMode::External => eprintln!("{}", message),
-        HegelMode::Embedded => {
-            if is_last_run() {
-                eprintln!("{}", message);
-            }
-        }
+    if is_last_run() {
+        eprintln!("{}", message);
     }
 }
 
@@ -132,71 +106,8 @@ thread_local! {
     static CONNECTION: RefCell<Option<ConnectionState>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn is_connected() -> bool {
-    CONNECTION.with(|conn| conn.borrow().is_some())
-}
-
-pub(crate) fn get_span_depth() -> usize {
-    CONNECTION.with(|conn| conn.borrow().as_ref().map(|s| s.span_depth).unwrap_or(0))
-}
-
 fn is_debug() -> bool {
     std::env::var("HEGEL_DEBUG").is_ok()
-}
-
-fn get_socket_path() -> String {
-    std::env::var("HEGEL_SOCKET").expect("HEGEL_SOCKET environment variable not set")
-}
-
-/// Open a connection. Panics if already connected.
-pub(crate) fn open_connection() {
-    CONNECTION.with(|conn| {
-        let mut conn = conn.borrow_mut();
-        assert!(
-            conn.is_none(),
-            "open_connection called while already connected"
-        );
-
-        let socket_path = get_socket_path();
-        let stream = match UnixStream::connect(&socket_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!(
-                    "Failed to connect to Hegel socket at {}: {}",
-                    socket_path, e
-                );
-                std::process::exit(exit_codes::SOCKET_ERROR);
-            }
-        };
-
-        let writer = stream.try_clone().unwrap_or_else(|e| {
-            eprintln!("Failed to clone socket: {}", e);
-            std::process::exit(exit_codes::SOCKET_ERROR);
-        });
-        let reader = BufReader::new(stream);
-
-        *conn = Some(ConnectionState {
-            writer,
-            reader,
-            span_depth: 0,
-        });
-    });
-}
-
-/// Close the connection. Panics if not connected or if spans are still open.
-pub(crate) fn close_connection() {
-    CONNECTION.with(|conn| {
-        let mut conn = conn.borrow_mut();
-        let state = conn
-            .as_ref()
-            .expect("close_connection called while not connected");
-        assert_eq!(
-            state.span_depth, 0,
-            "close_connection called with {} unclosed span(s)",
-            state.span_depth
-        );
-        *conn = None;
-    });
 }
 
 /// Set the connection from an already-connected stream (used by embedded module).
@@ -310,20 +221,8 @@ pub(crate) fn request_from_schema(schema: &Value) -> Value {
 }
 
 /// Generate a value from a schema.
-/// If inside a span, uses the existing connection.
-/// If not inside a span, opens a connection for this single request (external mode only).
 pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T {
-    // In embedded mode, connection is already set - don't try to open/close
-    let need_connection = !is_connected() && current_mode() == HegelMode::External;
-    if need_connection {
-        open_connection();
-    }
-
     let result = request_from_schema(schema);
-
-    if need_connection {
-        close_connection();
-    }
 
     if is_last_run() {
         buffer_generated_value(&format!("Generated: {}", result));
@@ -341,31 +240,20 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T
 
 /// Start a span for grouping related generation.
 ///
-/// Opens a connection if this is the first span (external mode only).
 /// Spans help Hypothesis understand the structure of generated data,
 /// which improves shrinking. Call `stop_span()` when done.
 pub fn start_span(label: u64) {
-    // In embedded mode, connection is already set - don't try to open
-    if !is_connected() && current_mode() == HegelMode::External {
-        open_connection();
-    }
     increment_span_depth();
     send_request("start_span", &json!({"label": label}));
 }
 
 /// Stop the current span.
 ///
-/// Closes the connection if this is the last span (in external mode only).
 /// If `discard` is true, tells Hypothesis this span's data should be discarded
 /// (e.g., because a filter rejected it).
 pub fn stop_span(discard: bool) {
     decrement_span_depth();
     send_request("stop_span", &json!({"discard": discard}));
-    // Only close connection in external mode - in embedded mode, the
-    // connection is managed by the embedded module
-    if get_span_depth() == 0 && current_mode() == HegelMode::External {
-        close_connection();
-    }
 }
 
 // ============================================================================

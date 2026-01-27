@@ -1,6 +1,5 @@
 use crate::gen::{
-    clear_embedded_connection, set_embedded_connection, set_is_last_run, set_mode,
-    take_generated_values, HegelMode,
+    clear_embedded_connection, set_embedded_connection, set_is_last_run, take_generated_values,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -274,7 +273,6 @@ fn handle_connection<F: FnMut()>(stream: UnixStream, test_fn: &mut F, verbosity:
     }
 
     // Set thread-local state
-    set_mode(HegelMode::Embedded);
     set_is_last_run(is_last);
     set_embedded_connection(stream);
 
@@ -282,7 +280,6 @@ fn handle_connection<F: FnMut()>(stream: UnixStream, test_fn: &mut F, verbosity:
     let ack = json!({"type": "handshake_ack"});
     if writeln!(writer, "{}", ack).is_err() {
         clear_embedded_connection();
-        set_mode(HegelMode::External);
         return;
     }
     let _ = writer.flush();
@@ -331,9 +328,6 @@ fn handle_connection<F: FnMut()>(stream: UnixStream, test_fn: &mut F, verbosity:
 
     let _ = writeln!(writer, "{}", result_msg);
     let _ = writer.flush();
-
-    // Reset mode
-    set_mode(HegelMode::External);
 }
 
 /// Extract a message from a panic payload.
