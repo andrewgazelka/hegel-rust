@@ -72,36 +72,6 @@ fn base64_decode(input: &str) -> Vec<u8> {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{gen, Hegel};
-
-    #[test]
-    fn test_base64_roundtrip() {
-        Hegel::new(|| {
-            let input = gen::binary().generate();
-            let encoded = base64_encode(&input);
-            let decoded = base64_decode(&encoded);
-            assert_eq!(input, decoded);
-        })
-        .test_cases(100)
-        .run();
-    }
-
-    #[test]
-    fn test_base64_explicit() {
-        // RFC 4648 test vectors
-        assert_eq!(base64_encode(b""), "");
-        assert_eq!(base64_encode(b"f"), "Zg==");
-        assert_eq!(base64_encode(b"fo"), "Zm8=");
-        assert_eq!(base64_encode(b"foo"), "Zm9v");
-        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
-        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
-        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
-    }
-}
-
 /// Generator for binary data (byte sequences).
 pub struct BinaryGenerator {
     min_size: usize,
@@ -160,5 +130,35 @@ pub fn binary() -> BinaryGenerator {
     BinaryGenerator {
         min_size: 0,
         max_size: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{gen, Hegel};
+
+    #[test]
+    fn test_base64_roundtrip() {
+        Hegel::new(|| {
+            let input = gen::binary().generate();
+            let encoded = base64_encode(&input);
+            let decoded = base64_decode(&encoded);
+            assert_eq!(input, decoded);
+        })
+        .test_cases(100)
+        .run();
+    }
+
+    #[test]
+    fn test_base64_explicit() {
+        // RFC 4648 test vectors
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
     }
 }

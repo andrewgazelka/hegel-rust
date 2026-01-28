@@ -1,3 +1,9 @@
+// clippy is rightfully complaining about a < n < b when that range is actually
+// guaranteed by the types. Nevertheless I want these tests here as a foundational
+// guardrail and for my sanity.
+#![allow(clippy::absurd_extreme_comparisons)]
+#![allow(clippy::manual_range_contains)]
+
 mod common;
 
 use common::utils::{assert_all_examples, find_any};

@@ -9,7 +9,7 @@ format:
 
 lint:
     cargo fmt --check
-    cargo clippy --all-features -- -D warnings
+    cargo clippy --all-features --tests -- -D warnings
 
 coverage:
     # requires:
