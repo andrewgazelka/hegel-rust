@@ -12,7 +12,6 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-
 // Protocol constants
 const MAGIC: u32 = 0x4845474C; // "HEGL" in big-endian
 const HEADER_SIZE: usize = 20;
@@ -103,7 +102,10 @@ pub fn read_packet<R: Read>(reader: &mut R) -> std::io::Result<Packet> {
     if magic != MAGIC {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Invalid magic number: expected 0x{:08X}, got 0x{:08X}", MAGIC, magic),
+            format!(
+                "Invalid magic number: expected 0x{:08X}, got 0x{:08X}",
+                MAGIC, magic
+            ),
         ));
     }
 
@@ -121,7 +123,10 @@ pub fn read_packet<R: Read>(reader: &mut R) -> std::io::Result<Packet> {
     if terminator[0] != TERMINATOR {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Invalid terminator: expected 0x{:02X}, got 0x{:02X}", TERMINATOR, terminator[0]),
+            format!(
+                "Invalid terminator: expected 0x{:02X}, got 0x{:02X}",
+                TERMINATOR, terminator[0]
+            ),
         ));
     }
 
@@ -135,7 +140,10 @@ pub fn read_packet<R: Read>(reader: &mut R) -> std::io::Result<Packet> {
     if computed_checksum != checksum {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Checksum mismatch: expected 0x{:08X}, got 0x{:08X}", checksum, computed_checksum),
+            format!(
+                "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}",
+                checksum, computed_checksum
+            ),
         ));
     }
 
@@ -228,7 +236,9 @@ impl Channel {
 
     /// Process one incoming message and route it appropriately.
     fn process_one_message(&self) -> std::io::Result<()> {
-        let packet = self.connection.receive_packet_for_channel(self.channel_id)?;
+        let packet = self
+            .connection
+            .receive_packet_for_channel(self.channel_id)?;
 
         if packet.is_reply {
             let mut responses = self.responses.lock().unwrap();
@@ -278,6 +288,7 @@ pub struct Connection {
     stream: Mutex<UnixStream>,
     /// Packets that arrived for channels other than the one being processed
     pending_packets: Mutex<HashMap<u32, VecDeque<Packet>>>,
+    #[allow(dead_code)]
     next_channel_id: AtomicU32,
     channels: Mutex<HashMap<u32, ()>>, // Track which channels exist
 }
@@ -299,6 +310,7 @@ impl Connection {
     }
 
     /// Create a new channel.
+    #[allow(dead_code)]
     pub fn new_channel(self: &Arc<Self>) -> Channel {
         let channel_id = self.next_channel_id.fetch_add(1, Ordering::SeqCst);
         self.channels.lock().unwrap().insert(channel_id, ());
@@ -348,6 +360,7 @@ impl Connection {
     }
 
     /// Close the connection.
+    #[allow(dead_code)]
     pub fn close(&self) -> std::io::Result<()> {
         let stream = self.stream.lock().unwrap();
         stream.shutdown(std::net::Shutdown::Both)
@@ -355,6 +368,7 @@ impl Connection {
 }
 
 /// Perform version negotiation on a connection.
+#[allow(dead_code)]
 pub fn negotiate_version(connection: &Arc<Connection>) -> std::io::Result<()> {
     let control = connection.control_channel();
     let id = control.send_request(VERSION_NEGOTIATION_MESSAGE.to_vec())?;
@@ -365,7 +379,10 @@ pub fn negotiate_version(connection: &Arc<Connection>) -> std::io::Result<()> {
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
-            format!("Version negotiation failed: {:?}", String::from_utf8_lossy(&response)),
+            format!(
+                "Version negotiation failed: {:?}",
+                String::from_utf8_lossy(&response)
+            ),
         ))
     }
 }

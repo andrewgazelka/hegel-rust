@@ -1,6 +1,4 @@
-use super::{
-    discardable_group, generate_from_schema, group, integers, labels, Generate,
-};
+use super::{discardable_group, generate_from_schema, group, integers, labels, Generate};
 use serde_json::{json, Value};
 use std::marker::PhantomData;
 use std::sync::Arc;
