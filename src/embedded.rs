@@ -288,6 +288,8 @@ where
         // Build hegel command
         let hegel_path = self.hegel_path.as_deref().unwrap_or(HEGEL_BINARY_PATH);
         let mut cmd = Command::new(hegel_path);
+        // Required for hegel to run under nix + madness
+        cmd.env("MADNESS_ALLOW_LDD", "1");
         cmd.arg("--client-mode")
             .arg(&socket_path)
             .arg("--no-tui")
