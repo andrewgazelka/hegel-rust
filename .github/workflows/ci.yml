@@ -123,5 +123,8 @@ jobs:
       - name: Build and test
         working-directory: tests/nix
         run: |
-          nix build -L --impure 2>&1 | tee build.log
+          # deleting the lock file allows nix to resolve the `path:../..` input value
+          # without erroring about unlocked values / irreproducible builds
+          rm -f flake.lock
+          nix build -L 2>&1 | tee build.log
           grep "test_nix_integration_marker" build.log
