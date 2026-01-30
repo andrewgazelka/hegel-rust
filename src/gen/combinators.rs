@@ -21,7 +21,7 @@ where
     }
 
     fn schema(&self) -> Option<Value> {
-        None // Transformation invalidates schema
+        None
     }
 }
 
@@ -61,7 +61,7 @@ where
     }
 
     fn schema(&self) -> Option<Value> {
-        None // Dependent generation can't have a static schema
+        None
     }
 }
 
@@ -109,7 +109,7 @@ where
     }
 
     fn schema(&self) -> Option<Value> {
-        None // Filter invalidates schema semantics
+        None
     }
 }
 
