@@ -360,9 +360,7 @@ pub trait Generate<T>: Send + Sync {
     }
 
     /// Filter generated values using a predicate.
-    ///
-    /// If `max_attempts` consecutive values fail the predicate, calls `assume(false)`.
-    fn filter<F>(self, predicate: F, max_attempts: usize) -> Filtered<T, F, Self>
+    fn filter<F>(self, predicate: F) -> Filtered<T, F, Self>
     where
         Self: Sized,
         F: Fn(&T) -> bool + Send + Sync,
@@ -370,7 +368,6 @@ pub trait Generate<T>: Send + Sync {
         Filtered {
             source: self,
             predicate,
-            max_attempts,
             _phantom: PhantomData,
         }
     }

@@ -82,7 +82,6 @@ where
 pub struct Filtered<T, F, G> {
     pub(crate) source: G,
     pub(crate) predicate: F,
-    pub(crate) max_attempts: usize,
     pub(crate) _phantom: PhantomData<T>,
 }
 
@@ -92,7 +91,7 @@ where
     F: Fn(&T) -> bool + Send + Sync,
 {
     fn generate(&self) -> T {
-        for _ in 0..self.max_attempts {
+        for _ in 0..3 {
             if let Some(value) = discardable_group(labels::FILTER, || {
                 let value = self.source.generate();
                 if (self.predicate)(&value) {
