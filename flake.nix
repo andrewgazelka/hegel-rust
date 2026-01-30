@@ -6,7 +6,8 @@
     hegel.url = "git+ssh://git@github.com/antithesishq/hegel";
   };
 
-  outputs = { nixpkgs, hegel, ... }:
+  outputs =
+    { nixpkgs, hegel, ... }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
@@ -19,9 +20,7 @@
         cargoLock.lockFile = ./Cargo.lock;
 
         # hegel binary on PATH so build.rs finds it
-        nativeBuildInputs = [
-          hegel.packages.${system}.default
-        ];
+        nativeBuildInputs = [ hegel.packages.${system}.default ];
 
       };
 

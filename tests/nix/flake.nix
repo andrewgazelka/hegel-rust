@@ -6,14 +6,15 @@
     hegel-rust.url = "path:../..";
   };
 
-  outputs = { nixpkgs, hegel-rust, ... }:
+  outputs =
+    { nixpkgs, hegel-rust, ... }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       hegel = hegel-rust.inputs.hegel;
 
       # Assemble source: tests/nix files + hegel-rust repo at "hegel-rust" subdir
-      src = pkgs.runCommand "nix-test-src" {} ''
+      src = pkgs.runCommand "nix-test-src" { } ''
         mkdir $out
         cp -r ${./.}/* $out/
         cp -r ${./../..} $out/hegel-rust
