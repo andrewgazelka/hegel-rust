@@ -36,7 +36,13 @@ fn ensure_hegel() -> PathBuf {
     }
 
     let install_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("hegel");
-    let python_install_dir = install_path.join("python");
+    let venv_path = install_path.join(".venv");
+    let hegel_path = venv_path.join("bin").join("hegel");
+
+    if hegel_path.exists() {
+        eprintln!("found hegel: {}", hegel_path.display());
+        return hegel_path;
+    }
 
     fs::create_dir_all(&install_path)
         .unwrap_or_else(|_| panic!("failed to create {}", install_path.display()));
@@ -44,33 +50,23 @@ fn ensure_hegel() -> PathBuf {
     let uv_path = ensure_uv(&install_path);
     eprintln!("using uv: {}", uv_path.display());
 
-    let python_path = ensure_python(&uv_path, &python_install_dir);
-    eprintln!("using python: {}", python_path.display());
-
-    let python_bin_dir = python_path.parent().unwrap();
-    let hegel_path = python_bin_dir.join("hegel");
-
-    if hegel_path.exists() {
-        eprintln!("found hegel: {}", hegel_path.display());
-        return hegel_path;
-    }
+    eprintln!("creating venv at {}", uv_path.display());
+    let status = Command::new(&uv_path)
+        .args(["venv", "--python", PYTHON_VERSION])
+        .arg(&venv_path)
+        .status()
+        .expect("failed to create venv");
+    assert!(status.success(), "failed to create venv");
 
     eprintln!("installing hegel");
     let status = Command::new(&uv_path)
         .args([
             "pip",
             "install",
-            // We install directly into our isolated Python rather than creating a venv.
-            // Python uses /proc/self/exe to detect if it's running in a venv, but on
-            // nix+madness systems this points to the dynamic linker instead of the Python
-            // binary. Without venv detection, sys.prefix isn't set correctly and packages
-            // installed in the venv aren't importable.
-            // --break-system-packages bypasses the EXTERNALLY-MANAGED check.
-            "--break-system-packages",
             "git+ssh://git@github.com/antithesishq/hegel.git",
-            "--python",
         ])
-        .arg(&python_path)
+        .arg("--python")
+        .arg(venv_path.join("bin").join("python"))
         .status()
         .expect("failed to install hegel");
     assert!(status.success(), "failed to install hegel");
@@ -81,54 +77,6 @@ fn ensure_hegel() -> PathBuf {
     );
 
     hegel_path
-}
-
-fn find_python(uv_path: &PathBuf, python_install_dir: &PathBuf) -> Option<PathBuf> {
-    // UV_PYTHON_INSTALL_DIR restricts the search to our local dir, and
-    // --managed-python prevents falling back to the system python
-    let output = Command::new(uv_path)
-        .args(["python", "find", PYTHON_VERSION, "--managed-python"])
-        .env("UV_PYTHON_INSTALL_DIR", python_install_dir)
-        .output()
-        .expect("failed to run uv python find");
-
-    if output.status.success() {
-        let python_path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-        if python_path.exists() {
-            assert!(
-                python_path.starts_with(python_install_dir),
-                "found python at {} but expected it to be in {}",
-                python_path.display(),
-                python_install_dir.display()
-            );
-            return Some(python_path);
-        }
-    }
-    None
-}
-
-fn ensure_python(uv_path: &PathBuf, python_install_dir: &PathBuf) -> PathBuf {
-    if let Some(python_path) = find_python(uv_path, python_install_dir) {
-        eprintln!("found python: {}", python_path.display());
-        return python_path;
-    }
-
-    // install a fresh copy of python to our local directory.
-    // --no-bin prevents uv from creating symlinks in ~/.local/bin.
-    eprintln!(
-        "installing python {} at {}",
-        PYTHON_VERSION,
-        python_install_dir.display()
-    );
-    let status = Command::new(uv_path)
-        .args(["python", "install", PYTHON_VERSION, "--install-dir"])
-        .arg(python_install_dir)
-        .arg("--no-bin")
-        .status()
-        .expect("failed to install python");
-    assert!(status.success(), "failed to install python");
-
-    find_python(uv_path, python_install_dir).expect("failed to find python after install")
 }
 
 fn ensure_uv(install_path: &Path) -> PathBuf {
