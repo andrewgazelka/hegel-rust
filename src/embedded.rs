@@ -4,6 +4,7 @@ use crate::gen::{
 };
 use crate::protocol::{Channel, Connection, VERSION_NEGOTIATION_MESSAGE, VERSION_NEGOTIATION_OK};
 use serde_json::{json, Value};
+use std::backtrace::{Backtrace, BacktraceStatus};
 use std::cell::RefCell;
 use std::os::unix::net::UnixStream;
 use std::panic::{self, catch_unwind, AssertUnwindSafe};
@@ -16,13 +17,105 @@ use tempfile::TempDir;
 static PANIC_HOOK_INIT: Once = Once::new();
 
 thread_local! {
-    /// Stores panic info captured by our panic hook: (thread_name, location)
-    static LAST_PANIC_INFO: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+    /// Stores panic info captured by our panic hook: (thread_name, thread_id, location, backtrace)
+    static LAST_PANIC_INFO: RefCell<Option<(String, String, String, Backtrace)>> = const { RefCell::new(None) };
 }
 
-/// Get and clear the last panic info (thread_name, location).
-fn take_panic_info() -> Option<(String, String)> {
+/// Get and clear the last panic info (thread_name, thread_id, location, backtrace).
+fn take_panic_info() -> Option<(String, String, String, Backtrace)> {
     LAST_PANIC_INFO.with(|info| info.borrow_mut().take())
+}
+
+/// Format a backtrace, optionally filtering to "short" format.
+///
+/// Short format shows only frames between `__rust_end_short_backtrace` and
+/// `__rust_begin_short_backtrace` markers, matching the default Rust panic handler.
+/// Frame numbers are renumbered to start at 0.
+fn format_backtrace(bt: &Backtrace, full: bool) -> String {
+    let backtrace_str = format!("{}", bt);
+
+    if full {
+        return backtrace_str;
+    }
+
+    // Filter to short backtrace: keep lines between the markers
+    // Frame groups look like:
+    //    N: function::name
+    //              at /path/to/file.rs:123:45
+    let lines: Vec<&str> = backtrace_str.lines().collect();
+    let mut start_idx = 0;
+    let mut end_idx = lines.len();
+
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("__rust_end_short_backtrace") {
+            // Skip past this frame (find the next frame number)
+            for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
+                if next_line
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
+                    start_idx = j;
+                    break;
+                }
+            }
+        }
+        if line.contains("__rust_begin_short_backtrace") {
+            // Find the start of this frame (the line with the frame number)
+            for (j, prev_line) in lines
+                .iter()
+                .enumerate()
+                .take(i + 1)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+            {
+                if prev_line
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
+                    end_idx = j;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    // Renumber frames starting at 0
+    let filtered: Vec<&str> = lines[start_idx..end_idx].to_vec();
+    let mut new_frame_num = 0usize;
+    let mut result = Vec::new();
+
+    for line in filtered {
+        let trimmed = line.trim_start();
+        if trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
+            // This is a frame number line like "   8: function_name"
+            // Find where the number ends (at the colon)
+            if let Some(colon_pos) = trimmed.find(':') {
+                let rest = &trimmed[colon_pos..];
+                // Preserve original indentation style (right-aligned numbers)
+                result.push(format!("{:>4}{}", new_frame_num, rest));
+                new_frame_num += 1;
+            } else {
+                result.push(line.to_string());
+            }
+        } else {
+            result.push(line.to_string());
+        }
+    }
+
+    result.join("\n")
 }
 
 // Panic unconditionally prints to stderr, even if it's caught later. This results in
@@ -33,16 +126,24 @@ fn take_panic_info() -> Option<(String, String)> {
 fn init_panic_hook() {
     PANIC_HOOK_INIT.call_once(|| {
         panic::set_hook(Box::new(|info| {
-            // Capture thread name and location for later use
-            let thread_name = std::thread::current()
-                .name()
-                .unwrap_or("<unnamed>")
+            // Capture thread name, ID, and location for later use
+            let current = std::thread::current();
+            let thread_name = current.name().unwrap_or("<unnamed>").to_string();
+            // ThreadId's Debug format is "ThreadId(N)" - extract just the number
+            let thread_id = format!("{:?}", current.id())
+                .trim_start_matches("ThreadId(")
+                .trim_end_matches(')')
                 .to_string();
             let location = info
                 .location()
                 .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
                 .unwrap_or_else(|| "<unknown>".to_string());
-            LAST_PANIC_INFO.with(|l| *l.borrow_mut() = Some((thread_name, location)));
+
+            // Capture backtrace - will have status Disabled if RUST_BACKTRACE not set
+            let backtrace = Backtrace::capture();
+
+            LAST_PANIC_INFO
+                .with(|l| *l.borrow_mut() = Some((thread_name, thread_id, location, backtrace)));
             // Don't print anything - we'll format the output ourselves
         }));
     });
@@ -252,21 +353,37 @@ where
         let verbosity = self.verbosity;
         let got_interesting = Arc::new(AtomicBool::new(false));
 
-        // Send run_test request
+        // Create a test channel for receiving test_case/test_done events
+        let test_channel = connection.new_channel();
+
+        // Send run_test request with the test channel ID
         let run_test_msg = json!({
             "command": "run_test",
             "name": "test",
             "test_cases": test_cases,
+            "channel": test_channel.channel_id,
         });
 
-        let pending_id = control
+        let run_test_id = control
             .send_request(cbor_encode(&run_test_msg))
             .expect("Failed to send run_test");
 
-        // Handle test_case events until test_done
+        // Wait for run_test response on control channel (just True, verifies no error)
+        let run_test_response = control
+            .receive_response(run_test_id)
+            .expect("Failed to receive run_test response");
+        let _run_test_result: Value = cbor_decode(&run_test_response);
+
+        if verbosity == Verbosity::Debug {
+            eprintln!("run_test response received");
+        }
+
+        // Handle test_case events on the test channel until test_done
+        let result_data: Value;
         loop {
-            let (event_id, event_payload) =
-                control.receive_request().expect("Failed to receive event");
+            let (event_id, event_payload) = test_channel
+                .receive_request()
+                .expect("Failed to receive event");
 
             let event: Value = cbor_decode(&event_payload);
             let event_type = event.get("event").and_then(|e| e.as_str());
@@ -281,59 +398,91 @@ where
                         .get("channel")
                         .and_then(|c| c.as_u64())
                         .expect("Missing channel id") as u32;
-                    let is_final = event
-                        .get("is_final")
-                        .and_then(|f| f.as_bool())
-                        .unwrap_or(false);
 
-                    let test_channel = connection.connect_channel(channel_id);
+                    let test_case_channel = connection.connect_channel(channel_id);
+
+                    // Ack the test_case event BEFORE running the test (prevents deadlock)
+                    test_channel
+                        .send_response(event_id, cbor_encode(&json!({"result": null})))
+                        .expect("Failed to ack test_case");
 
                     run_test_case(
                         &connection,
-                        test_channel,
+                        test_case_channel,
                         &mut test_fn,
-                        is_final,
+                        false,
                         verbosity,
                         &got_interesting,
                     );
-
-                    // Ack the test_case event
-                    control
-                        .send_response(event_id, cbor_encode(&json!({"result": null})))
-                        .expect("Failed to ack test_case");
                 }
                 Some("test_done") => {
                     // Ack the test_done event
-                    control
-                        .send_response(event_id, cbor_encode(&json!({"result": null})))
+                    test_channel
+                        .send_response(event_id, cbor_encode(&json!({"result": true})))
                         .expect("Failed to ack test_done");
+                    result_data = event.get("results").cloned().unwrap_or(json!(null));
                     break;
                 }
                 _ => {
                     // Unknown event, just ack it
-                    control
+                    test_channel
                         .send_response(event_id, cbor_encode(&json!({"result": null})))
                         .expect("Failed to ack event");
                 }
             }
         }
 
-        // Get the run_test result
-        let result_payload = control
-            .receive_response(pending_id)
-            .expect("Failed to receive run_test result");
-        let result: Value = cbor_decode(&result_payload);
+        let n_interesting = result_data
+            .get("interesting_test_cases")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
 
         if verbosity == Verbosity::Debug {
-            eprintln!("Test result: {:?}", result);
+            eprintln!(
+                "Test done. interesting_test_cases={}",
+                n_interesting
+            );
         }
 
-        let passed = result
+        // Process final replay test cases (one per interesting example)
+        for _ in 0..n_interesting {
+            let (event_id, event_payload) = test_channel
+                .receive_request()
+                .expect("Failed to receive final test_case");
+
+            let event: Value = cbor_decode(&event_payload);
+            let event_type = event.get("event").and_then(|e| e.as_str());
+            assert_eq!(event_type, Some("test_case"));
+
+            let channel_id = event
+                .get("channel")
+                .and_then(|c| c.as_u64())
+                .expect("Missing channel id") as u32;
+
+            let test_case_channel = connection.connect_channel(channel_id);
+
+            // Ack before running
+            test_channel
+                .send_response(event_id, cbor_encode(&json!({"result": null})))
+                .expect("Failed to ack final test_case");
+
+            run_test_case(
+                &connection,
+                test_case_channel,
+                &mut test_fn,
+                true,
+                verbosity,
+                &got_interesting,
+            );
+        }
+
+        let passed = result_data
             .get("passed")
             .and_then(|p| p.as_bool())
             .unwrap_or(true);
 
         // Close the connection so hegeld can exit gracefully
+        drop(test_channel);
         drop(control);
         let _ = connection.close();
         drop(connection);
@@ -342,21 +491,7 @@ where
         let _ = child.wait().expect("Failed to wait for hegel");
 
         if !passed || got_interesting.load(Ordering::SeqCst) {
-            let failure = result.get("failure").cloned().unwrap_or(json!(null));
-            let exc_type = failure
-                .get("exc_type")
-                .and_then(|e| e.as_str())
-                .unwrap_or("AssertionError");
-            let filename = failure
-                .get("filename")
-                .and_then(|f| f.as_str())
-                .unwrap_or("");
-            let lineno = failure.get("lineno").and_then(|l| l.as_u64()).unwrap_or(0);
-
-            panic!(
-                "Property test failed: {} at {}:{}",
-                exc_type, filename, lineno
-            );
+            panic!("Property test failed");
         }
     }
 }
@@ -390,31 +525,42 @@ fn run_test_case<F: FnMut()>(
             } else {
                 got_interesting.store(true, Ordering::SeqCst);
 
-                // Take panic info once and use for both display and origin
-                let panic_info = take_panic_info();
-                let (thread_name, location) = panic_info
-                    .as_ref()
-                    .cloned()
-                    .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+                // Take panic info - we need location for origin, and print details on final
+                let (thread_name, thread_id, location, backtrace) =
+                    take_panic_info().unwrap_or_else(|| {
+                        (
+                            "<unknown>".to_string(),
+                            "?".to_string(),
+                            "<unknown>".to_string(),
+                            Backtrace::disabled(),
+                        )
+                    });
 
                 if is_final {
-                    eprintln!("thread '{}' panicked at {}:", thread_name, location);
+                    eprintln!(
+                        "thread '{}' ({}) panicked at {}:",
+                        thread_name, thread_id, location
+                    );
                     eprintln!("{}", msg);
 
                     for value in take_generated_values() {
                         eprintln!("{}", value);
                     }
+
+                    if backtrace.status() == BacktraceStatus::Captured {
+                        let is_full = std::env::var("RUST_BACKTRACE")
+                            .map(|v| v == "full")
+                            .unwrap_or(false);
+                        let formatted = format_backtrace(&backtrace, is_full);
+                        eprintln!("stack backtrace:\n{}", formatted);
+                        if !is_full {
+                            eprintln!("note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.");
+                        }
+                    }
                 }
 
-                // Extract origin info from the same panic info
-                let origin = {
-                    let parts: Vec<&str> = location.split(':').collect();
-                    json!({
-                        "exc_type": "Panic",
-                        "filename": parts.first().unwrap_or(&""),
-                        "lineno": parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
-                    })
-                };
+                // Origin is a string matching Python's _extract_origin format
+                let origin = format!("Panic at {}", location);
 
                 ("INTERESTING".to_string(), Some(origin))
             }
@@ -432,7 +578,10 @@ fn run_test_case<F: FnMut()>(
                     "status": status,
                     "origin": origin,
                 });
-                let _ = state.channel.request_json(&mark_complete);
+                // Fire-and-forget: server does not send a response to mark_complete
+                let _ = state.channel.send_request_json(&mark_complete);
+                // Close the test case channel
+                let _ = state.channel.close();
             }
         });
     }

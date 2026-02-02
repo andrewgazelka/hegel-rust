@@ -18,6 +18,11 @@ const HEADER_SIZE: usize = 20;
 const REPLY_BIT: u32 = 1 << 31;
 const TERMINATOR: u8 = 0x0A;
 
+/// Special payload sent when closing a channel (invalid CBOR byte 0xFE).
+const CLOSE_CHANNEL_PAYLOAD: &[u8] = &[0xFE];
+/// Special message ID used for channel close packets.
+const CLOSE_CHANNEL_MESSAGE_ID: u32 = (1u32 << 31) - 1;
+
 /// Version negotiation message sent by client
 pub const VERSION_NEGOTIATION_MESSAGE: &[u8] = b"Hegel/1.0";
 /// Expected response for successful version negotiation
@@ -239,6 +244,21 @@ impl Channel {
         Ok(())
     }
 
+    /// Send a JSON request without waiting for a response (fire-and-forget).
+    /// Returns the message ID of the sent request.
+    pub fn send_request_json(&self, message: &serde_json::Value) -> std::io::Result<u32> {
+        let mut payload = Vec::new();
+        ciborium::into_writer(message, &mut payload)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        self.send_request(payload)
+    }
+
+    /// Close this channel by sending a close packet to the remote side.
+    pub fn close(&self) -> std::io::Result<()> {
+        let packet = Packet::request(self.channel_id, CLOSE_CHANNEL_MESSAGE_ID, CLOSE_CHANNEL_PAYLOAD.to_vec());
+        self.connection.send_packet(&packet)
+    }
+
     /// Send a JSON request and wait for a JSON response.
     /// Uses serde to serialize directly to CBOR - no manual conversion needed.
     pub fn request_json(&self, message: &serde_json::Value) -> std::io::Result<serde_json::Value> {
@@ -276,7 +296,6 @@ pub struct Connection {
     stream: Mutex<UnixStream>,
     /// Packets that arrived for channels other than the one being processed
     pending_packets: Mutex<HashMap<u32, VecDeque<Packet>>>,
-    #[allow(dead_code)]
     next_channel_id: AtomicU32,
     channels: Mutex<HashMap<u32, ()>>, // Track which channels exist
 }
@@ -297,10 +316,11 @@ impl Connection {
         Channel::new(0, Arc::clone(self))
     }
 
-    /// Create a new channel.
-    #[allow(dead_code)]
+    /// Create a new client-side channel with an odd ID (3, 5, 7...).
     pub fn new_channel(self: &Arc<Self>) -> Channel {
-        let channel_id = self.next_channel_id.fetch_add(1, Ordering::SeqCst);
+        let next = self.next_channel_id.fetch_add(1, Ordering::SeqCst);
+        // Client channels use odd IDs: (next << 1) | 1 gives 3, 5, 7, ...
+        let channel_id = (next << 1) | 1;
         self.channels.lock().unwrap().insert(channel_id, ());
         Channel::new(channel_id, Arc::clone(self))
     }
