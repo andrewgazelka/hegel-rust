@@ -110,11 +110,10 @@ impl Generate<Vec<u8>> for BinaryGenerator {
     }
 
     fn schema(&self) -> Option<Value> {
-        let mut schema = json!({"type": "binary"});
-
-        if self.min_size > 0 {
-            schema["min_size"] = json!(self.min_size);
-        }
+        let mut schema = json!({
+            "type": "binary",
+            "min_size": self.min_size
+        });
 
         if let Some(max) = self.max_size {
             schema["max_size"] = json!(max);

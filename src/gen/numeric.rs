@@ -112,15 +112,15 @@ impl<T> FloatGenerator<T> {
         self
     }
 
-    /// Allow NaN values to be generated.
-    pub fn allow_nan(mut self) -> Self {
-        self.allow_nan = true;
+    /// Set whether NaN values can be generated.
+    pub fn allow_nan(mut self, allow: bool) -> Self {
+        self.allow_nan = allow;
         self
     }
 
-    /// Allow infinity values to be generated.
-    pub fn allow_infinity(mut self) -> Self {
-        self.allow_infinity = true;
+    /// Set whether infinity values can be generated.
+    pub fn allow_infinity(mut self, allow: bool) -> Self {
+        self.allow_infinity = allow;
         self
     }
 }
@@ -134,28 +134,35 @@ where
     }
 
     fn schema(&self) -> Option<Value> {
-        let mut schema = json!({"type": "number"});
+        let width = (std::mem::size_of::<T>() * 8) as u8;
 
+        let mut schema = json!({
+            "type": "number",
+            "exclude_minimum": self.exclude_min,
+            "exclude_maximum": self.exclude_max,
+            "allow_nan": self.allow_nan,
+            "allow_infinity": self.allow_infinity,
+            "width": width,
+        });
+
+        // Include user-specified bounds
         if let Some(ref min) = self.min {
             schema["minimum"] = json!(min);
-            if self.exclude_min {
-                schema["exclude_minimum"] = json!(true);
-            }
         }
-
         if let Some(ref max) = self.max {
             schema["maximum"] = json!(max);
-            if self.exclude_max {
-                schema["exclude_maximum"] = json!(true);
+        }
+
+        // When generating finite values without explicit bounds, add type
+        // bounds to prevent overflow during JSON deserialization (the protocol
+        // uses f64, so f32 values near MAX can overflow when round-tripped)
+        if !self.allow_nan && !self.allow_infinity {
+            if self.min.is_none() {
+                schema["minimum"] = json!(T::min_value());
             }
-        }
-
-        if self.allow_nan {
-            schema["allow_nan"] = json!(true);
-        }
-
-        if self.allow_infinity {
-            schema["allow_infinity"] = json!(true);
+            if self.max.is_none() {
+                schema["maximum"] = json!(T::max_value());
+            }
         }
 
         Some(schema)
@@ -163,6 +170,9 @@ where
 }
 
 /// Generate floating-point values.
+///
+/// By default, allows NaN and infinity values. Use `.allow_nan(false)` and
+/// `.allow_infinity(false)` to restrict to finite values.
 pub fn floats<T>() -> FloatGenerator<T>
 where
     T: NumFloat,
@@ -172,7 +182,7 @@ where
         max: None,
         exclude_min: false,
         exclude_max: false,
-        allow_nan: false,
-        allow_infinity: false,
+        allow_nan: true,
+        allow_infinity: true,
     }
 }

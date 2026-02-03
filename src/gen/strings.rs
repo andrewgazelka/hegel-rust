@@ -24,11 +24,10 @@ impl Generate<String> for TextGenerator {
     }
 
     fn schema(&self) -> Option<Value> {
-        let mut schema = json!({"type": "string"});
-
-        if self.min_size > 0 {
-            schema["min_size"] = json!(self.min_size);
-        }
+        let mut schema = json!({
+            "type": "string",
+            "min_size": self.min_size
+        });
 
         if let Some(max) = self.max_size {
             schema["max_size"] = json!(max);
@@ -64,14 +63,11 @@ impl Generate<String> for RegexGenerator {
     }
 
     fn schema(&self) -> Option<Value> {
-        let mut schema = json!({
+        Some(json!({
             "type": "regex",
-            "pattern": self.pattern
-        });
-        if self.fullmatch {
-            schema["fullmatch"] = json!(true);
-        }
-        Some(schema)
+            "pattern": self.pattern,
+            "fullmatch": self.fullmatch
+        }))
     }
 }
 

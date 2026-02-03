@@ -44,11 +44,11 @@ pub struct BoolGenerator;
 
 impl Generate<bool> for BoolGenerator {
     fn generate(&self) -> bool {
-        generate_from_schema(&json!({"type": "boolean"}))
+        generate_from_schema(&json!({"type": "boolean", "p": 0.5}))
     }
 
     fn schema(&self) -> Option<Value> {
-        Some(json!({"type": "boolean"}))
+        Some(json!({"type": "boolean", "p": 0.5}))
     }
 }
 
