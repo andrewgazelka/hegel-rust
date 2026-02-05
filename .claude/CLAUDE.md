@@ -22,7 +22,8 @@ cargo test --all-features           # Run tests including optional features
 hegel-rust/
 ├── src/
 │   ├── lib.rs          # Public API: hegel(), Hegel builder, assume(), note()
-│   ├── embedded.rs     # Spawns hegel CLI, manages socket server
+│   ├── cbor_helpers.rs # Macros and helpers for ciborium::Value (cbor_map!, cbor_array!, map_get, etc.)
+│   ├── runner.rs       # Spawns hegel CLI, manages socket server
 │   └── gen/            # Generator implementations
 │       ├── mod.rs      # Generate trait, socket communication, thread-local state
 │       ├── primitives.rs   # unit(), booleans(), just(), just_any()
@@ -75,7 +76,7 @@ The SDK uses thread-local storage for:
 ### Generation Protocol
 
 Generators implement the `Generate<T>` trait:
-- `schema()`: Returns JSON Schema describing generated values (enables single-request composition)
+- `schema()`: Returns a CBOR schema (as `ciborium::Value`) describing generated values (enables single-request composition)
 - `generate()`: Produces a value, either via schema or compositional fallback
 
 When `schema()` returns `Some`, the SDK sends one request. When `None` (after `map`/`filter`), it falls back to multiple requests with span grouping for shrinking.

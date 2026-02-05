@@ -3,7 +3,9 @@ use crate::gen::{
     TEST_ABORTED,
 };
 use crate::protocol::{Channel, Connection, VERSION_NEGOTIATION_MESSAGE, VERSION_NEGOTIATION_OK};
-use serde_json::{json, Value};
+use ciborium::Value;
+
+use crate::cbor_helpers::{as_bool, as_text, as_u64, cbor_map, map_get};
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::cell::RefCell;
 use std::os::unix::net::UnixStream;
@@ -324,6 +326,11 @@ where
             attempts += 1;
         };
 
+        // Set a read timeout so the SDK doesn't hang forever if the server
+        // crashes without sending a response (e.g. Python IndexError in
+        // send_response_error for UnsatisfiedAssumption).
+        stream.set_read_timeout(Some(Duration::from_secs(120))).ok();
+
         // Create connection and perform version negotiation
         let connection = Connection::new(stream);
 
@@ -357,12 +364,12 @@ where
         let test_channel = connection.new_channel();
 
         // Send run_test request with the test channel ID
-        let run_test_msg = json!({
-            "command": "run_test",
-            "name": "test",
-            "test_cases": test_cases,
-            "channel": test_channel.channel_id,
-        });
+        let run_test_msg = cbor_map! {
+            "command" => "run_test",
+            "name" => "test",
+            "test_cases" => test_cases,
+            "channel" => test_channel.channel_id
+        };
 
         let run_test_id = control
             .send_request(cbor_encode(&run_test_msg))
@@ -380,13 +387,14 @@ where
 
         // Handle test_case events on the test channel until test_done
         let result_data: Value;
+        let ack_null = cbor_map! {"result" => Value::Null};
         loop {
             let (event_id, event_payload) = test_channel
                 .receive_request()
                 .expect("Failed to receive event");
 
             let event: Value = cbor_decode(&event_payload);
-            let event_type = event.get("event").and_then(|e| e.as_str());
+            let event_type = map_get(&event, "event").and_then(as_text);
 
             if verbosity == Verbosity::Debug {
                 eprintln!("Received event: {:?}", event);
@@ -394,16 +402,15 @@ where
 
             match event_type {
                 Some("test_case") => {
-                    let channel_id = event
-                        .get("channel")
-                        .and_then(|c| c.as_u64())
+                    let channel_id = map_get(&event, "channel")
+                        .and_then(as_u64)
                         .expect("Missing channel id") as u32;
 
                     let test_case_channel = connection.connect_channel(channel_id);
 
                     // Ack the test_case event BEFORE running the test (prevents deadlock)
                     test_channel
-                        .send_response(event_id, cbor_encode(&json!({"result": null})))
+                        .send_response(event_id, cbor_encode(&ack_null))
                         .expect("Failed to ack test_case");
 
                     run_test_case(
@@ -417,24 +424,24 @@ where
                 }
                 Some("test_done") => {
                     // Ack the test_done event
+                    let ack_true = cbor_map! {"result" => true};
                     test_channel
-                        .send_response(event_id, cbor_encode(&json!({"result": true})))
+                        .send_response(event_id, cbor_encode(&ack_true))
                         .expect("Failed to ack test_done");
-                    result_data = event.get("results").cloned().unwrap_or(json!(null));
+                    result_data = map_get(&event, "results").cloned().unwrap_or(Value::Null);
                     break;
                 }
                 _ => {
                     // Unknown event, just ack it
                     test_channel
-                        .send_response(event_id, cbor_encode(&json!({"result": null})))
+                        .send_response(event_id, cbor_encode(&ack_null))
                         .expect("Failed to ack event");
                 }
             }
         }
 
-        let n_interesting = result_data
-            .get("interesting_test_cases")
-            .and_then(|n| n.as_u64())
+        let n_interesting = map_get(&result_data, "interesting_test_cases")
+            .and_then(as_u64)
             .unwrap_or(0);
 
         if verbosity == Verbosity::Debug {
@@ -448,19 +455,18 @@ where
                 .expect("Failed to receive final test_case");
 
             let event: Value = cbor_decode(&event_payload);
-            let event_type = event.get("event").and_then(|e| e.as_str());
+            let event_type = map_get(&event, "event").and_then(as_text);
             assert_eq!(event_type, Some("test_case"));
 
-            let channel_id = event
-                .get("channel")
-                .and_then(|c| c.as_u64())
+            let channel_id = map_get(&event, "channel")
+                .and_then(as_u64)
                 .expect("Missing channel id") as u32;
 
             let test_case_channel = connection.connect_channel(channel_id);
 
             // Ack before running
             test_channel
-                .send_response(event_id, cbor_encode(&json!({"result": null})))
+                .send_response(event_id, cbor_encode(&ack_null))
                 .expect("Failed to ack final test_case");
 
             run_test_case(
@@ -473,9 +479,8 @@ where
             );
         }
 
-        let passed = result_data
-            .get("passed")
-            .and_then(|p| p.as_bool())
+        let passed = map_get(&result_data, "passed")
+            .and_then(as_bool)
             .unwrap_or(true);
 
         // Close the connection so hegeld can exit gracefully
@@ -570,13 +575,17 @@ fn run_test_case<F: FnMut()>(
     if !was_aborted {
         CONNECTION.with(|conn| {
             if let Some(state) = conn.borrow_mut().as_mut() {
-                let mark_complete = json!({
-                    "command": "mark_complete",
-                    "status": status,
-                    "origin": origin,
-                });
+                let origin_value = match &origin {
+                    Some(s) => Value::Text(s.clone()),
+                    None => Value::Null,
+                };
+                let mark_complete = cbor_map! {
+                    "command" => "mark_complete",
+                    "status" => status.as_str(),
+                    "origin" => origin_value
+                };
                 // Wait for server to acknowledge mark_complete before closing
-                let _ = state.channel.request_json(&mark_complete);
+                let _ = state.channel.request_cbor(&mark_complete);
                 // Close the test case channel
                 let _ = state.channel.close();
             }
@@ -598,14 +607,14 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-/// Encode a JSON value to CBOR bytes using serde.
+/// Encode a ciborium::Value to CBOR bytes.
 fn cbor_encode(value: &Value) -> Vec<u8> {
     let mut bytes = Vec::new();
     ciborium::into_writer(value, &mut bytes).expect("CBOR encoding failed");
     bytes
 }
 
-/// Decode CBOR bytes to a JSON value using serde.
+/// Decode CBOR bytes to a ciborium::Value.
 fn cbor_decode(bytes: &[u8]) -> Value {
     ciborium::from_reader(bytes).expect("CBOR decoding failed")
 }

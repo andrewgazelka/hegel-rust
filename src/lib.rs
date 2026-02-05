@@ -205,6 +205,7 @@
 //!
 //! Set `HEGEL_DEBUG=1` to enable debug logging of requests/responses.
 
+pub(crate) mod cbor_helpers;
 pub mod gen;
 pub(crate) mod protocol;
 pub(crate) mod runner;

@@ -12,6 +12,10 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use ciborium::Value;
+
+use crate::cbor_helpers::{as_text, map_get};
+
 // Protocol constants
 const MAGIC: u32 = 0x4845474C; // "HEGL" in big-endian
 const HEADER_SIZE: usize = 20;
@@ -160,65 +164,6 @@ pub fn read_packet<R: Read>(reader: &mut R) -> std::io::Result<Packet> {
     })
 }
 
-/// Convert a `ciborium::Value` to `serde_json::Value`, wrapping NaN/infinity
-/// floats as `{"$float": "nan"}` / `{"$float": "inf"}` / `{"$float": "-inf"}`
-/// objects so they survive the JSON value model (which cannot represent these).
-fn cbor_to_json(value: ciborium::Value) -> serde_json::Value {
-    match value {
-        ciborium::Value::Null => serde_json::Value::Null,
-        ciborium::Value::Bool(b) => serde_json::Value::Bool(b),
-        ciborium::Value::Float(f) => {
-            if f.is_nan() {
-                serde_json::json!({"$float": "nan"})
-            } else if f.is_infinite() {
-                if f.is_sign_positive() {
-                    serde_json::json!({"$float": "inf"})
-                } else {
-                    serde_json::json!({"$float": "-inf"})
-                }
-            } else {
-                serde_json::Number::from_f64(f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            }
-        }
-        ciborium::Value::Integer(i) => {
-            let n: i128 = i.into();
-            if let Ok(v) = u64::try_from(n) {
-                serde_json::Value::Number(v.into())
-            } else if let Ok(v) = i64::try_from(n) {
-                serde_json::Value::Number(v.into())
-            } else {
-                // Large integer that doesn't fit in i64/u64 — use $integer wrapper
-                serde_json::json!({"$integer": n.to_string()})
-            }
-        }
-        ciborium::Value::Text(s) => serde_json::Value::String(s),
-        ciborium::Value::Bytes(b) => {
-            // Encode bytes as array of numbers (best-effort for JSON)
-            serde_json::Value::Array(b.into_iter().map(|byte| byte.into()).collect())
-        }
-        ciborium::Value::Array(arr) => {
-            serde_json::Value::Array(arr.into_iter().map(cbor_to_json).collect())
-        }
-        ciborium::Value::Map(map) => {
-            let obj: serde_json::Map<String, serde_json::Value> = map
-                .into_iter()
-                .map(|(k, v)| {
-                    let key = match k {
-                        ciborium::Value::Text(s) => s,
-                        other => format!("{:?}", other),
-                    };
-                    (key, cbor_to_json(v))
-                })
-                .collect();
-            serde_json::Value::Object(obj)
-        }
-        ciborium::Value::Tag(_, inner) => cbor_to_json(*inner),
-        _ => serde_json::Value::Null,
-    }
-}
-
 /// A logical channel on a connection.
 pub struct Channel {
     pub channel_id: u32,
@@ -313,10 +258,8 @@ impl Channel {
         self.connection.send_packet(&packet)
     }
 
-    /// Send a JSON request and wait for a JSON response.
-    /// Uses serde to serialize directly to CBOR - no manual conversion needed.
-    pub fn request_json(&self, message: &serde_json::Value) -> std::io::Result<serde_json::Value> {
-        // Serialize JSON value directly to CBOR bytes using serde
+    /// Send a CBOR request and wait for a CBOR response.
+    pub fn request_cbor(&self, message: &Value) -> std::io::Result<Value> {
         let mut payload = Vec::new();
         ciborium::into_writer(message, &mut payload)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -324,23 +267,20 @@ impl Channel {
         let id = self.send_request(payload)?;
         let response_bytes = self.receive_response(id)?;
 
-        // Deserialize CBOR to ciborium::Value first, then convert to JSON
-        // to preserve NaN/infinity floats as $float wrapper objects.
-        let cbor_value: ciborium::Value = ciborium::from_reader(&response_bytes[..])
+        let response: Value = ciborium::from_reader(&response_bytes[..])
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        let response = cbor_to_json(cbor_value);
 
         // Check for error response
-        if let Some(error) = response.get("error") {
-            let error_type = response.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if let Some(error) = map_get(&response, "error") {
+            let error_type = map_get(&response, "type").and_then(as_text).unwrap_or("");
             return Err(std::io::Error::other(format!(
-                "Server error ({}): {}",
+                "Server error ({}): {:?}",
                 error_type, error
             )));
         }
 
         // Extract result field if present
-        if let Some(result) = response.get("result") {
+        if let Some(result) = map_get(&response, "result") {
             return Ok(result.clone());
         }
 
@@ -465,59 +405,53 @@ mod tests {
     }
 
     #[test]
-    fn test_json_cbor_serde_roundtrip() {
-        // Test that serde can roundtrip JSON through CBOR
-        let json = serde_json::json!({
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-        });
+    fn test_cbor_value_roundtrip() {
+        use crate::cbor_helpers::cbor_map;
+        // Test that ciborium::Value roundtrips through CBOR
+        let value = cbor_map! {
+            "type" => "integer",
+            "minimum" => 0,
+            "maximum" => 100
+        };
 
-        // Serialize JSON to CBOR bytes
+        // Serialize to CBOR bytes
         let mut cbor_bytes = Vec::new();
-        ciborium::into_writer(&json, &mut cbor_bytes).unwrap();
+        ciborium::into_writer(&value, &mut cbor_bytes).unwrap();
 
-        // Deserialize CBOR bytes back to JSON
-        let back: serde_json::Value = ciborium::from_reader(&cbor_bytes[..]).unwrap();
+        // Deserialize back
+        let back: Value = ciborium::from_reader(&cbor_bytes[..]).unwrap();
 
-        assert_eq!(json, back);
+        assert_eq!(value, back);
     }
 
     #[test]
-    fn test_cbor_to_json_nan() {
-        let cbor = ciborium::Value::Float(f64::NAN);
-        let json = cbor_to_json(cbor);
-        assert_eq!(json, serde_json::json!({"$float": "nan"}));
+    fn test_cbor_nan_preserved() {
+        let value = Value::Float(f64::NAN);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&value, &mut bytes).unwrap();
+        let back: Value = ciborium::from_reader(&bytes[..]).unwrap();
+        if let Value::Float(f) = back {
+            assert!(f.is_nan());
+        } else {
+            panic!("expected Float");
+        }
     }
 
     #[test]
-    fn test_cbor_to_json_infinity() {
-        let cbor = ciborium::Value::Float(f64::INFINITY);
-        let json = cbor_to_json(cbor);
-        assert_eq!(json, serde_json::json!({"$float": "inf"}));
+    fn test_cbor_infinity_preserved() {
+        let value = Value::Float(f64::INFINITY);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&value, &mut bytes).unwrap();
+        let back: Value = ciborium::from_reader(&bytes[..]).unwrap();
+        assert_eq!(back, Value::Float(f64::INFINITY));
     }
 
     #[test]
-    fn test_cbor_to_json_neg_infinity() {
-        let cbor = ciborium::Value::Float(f64::NEG_INFINITY);
-        let json = cbor_to_json(cbor);
-        assert_eq!(json, serde_json::json!({"$float": "-inf"}));
-    }
-
-    #[test]
-    fn test_cbor_to_json_normal_float() {
-        let cbor = ciborium::Value::Float(42.5);
-        let json = cbor_to_json(cbor);
-        assert_eq!(json, serde_json::json!(42.5));
-    }
-
-    #[test]
-    fn test_cbor_to_json_nested_nan() {
-        let cbor = ciborium::Value::Map(vec![(
-            ciborium::Value::Text("result".to_string()),
-            ciborium::Value::Float(f64::NAN),
-        )]);
-        let json = cbor_to_json(cbor);
-        assert_eq!(json, serde_json::json!({"result": {"$float": "nan"}}));
+    fn test_cbor_neg_infinity_preserved() {
+        let value = Value::Float(f64::NEG_INFINITY);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&value, &mut bytes).unwrap();
+        let back: Value = ciborium::from_reader(&bytes[..]).unwrap();
+        assert_eq!(back, Value::Float(f64::NEG_INFINITY));
     }
 }

@@ -34,7 +34,9 @@ pub(crate) use numeric::{FloatGenerator, IntegerGenerator};
 pub(crate) use primitives::BoolGenerator;
 pub(crate) use strings::TextGenerator;
 
-use serde_json::{json, Value};
+use ciborium::Value;
+
+use crate::cbor_helpers::cbor_map;
 
 pub(crate) mod exit_codes {
     pub const SOCKET_ERROR: i32 = 134;
@@ -171,18 +173,20 @@ impl std::error::Error for StopTestError {}
 pub(crate) fn send_request(command: &str, payload: &Value) -> Result<Value, StopTestError> {
     let debug = is_debug();
 
-    // Build the request message
-    let mut request_map = serde_json::Map::new();
-    request_map.insert("command".to_string(), Value::String(command.to_string()));
+    // Build the request message by merging command into the payload map
+    let mut entries = vec![(
+        Value::Text("command".to_string()),
+        Value::Text(command.to_string()),
+    )];
 
     // Merge payload fields into the request
-    if let Value::Object(obj) = payload {
-        for (k, v) in obj {
-            request_map.insert(k.clone(), v.clone());
+    if let Value::Map(map) = payload {
+        for (k, v) in map {
+            entries.push((k.clone(), v.clone()));
         }
     }
 
-    let request = Value::Object(request_map);
+    let request = Value::Map(entries);
 
     if debug {
         eprintln!("REQUEST: {:?}", request);
@@ -194,8 +198,7 @@ pub(crate) fn send_request(command: &str, payload: &Value) -> Result<Value, Stop
             .as_ref()
             .expect("send_request called without active connection");
 
-        // Use request_json for direct serde serialization to CBOR
-        let result = state.channel.request_json(&request);
+        let result = state.channel.request_cbor(&request);
 
         match result {
             Ok(response) => {
@@ -221,7 +224,7 @@ pub(crate) fn send_request(command: &str, payload: &Value) -> Result<Value, Stop
 }
 
 pub(crate) fn request_from_schema(schema: &Value) -> Result<Value, StopTestError> {
-    match send_request("generate", &json!({"schema": schema})) {
+    match send_request("generate", &cbor_map! {"schema" => schema.clone()}) {
         Ok(v) => Ok(v),
         Err(e) => {
             // Mark test as aborted - server has closed the channel
@@ -243,14 +246,17 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T
     };
 
     if is_last_run() {
-        buffer_generated_value(&format!("Generated: {}", result));
+        buffer_generated_value(&format!(
+            "Generated: {}",
+            crate::cbor_helpers::display_value(&result)
+        ));
     }
 
-    // Convert to HegelValue to handle NaN/Infinity sentinel strings
+    // Convert to HegelValue — ciborium::Value natively preserves NaN/Infinity
     let hegel_value = value::HegelValue::from(result.clone());
     value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
         panic!(
-            "hegel: failed to deserialize server response: {}\nValue: {}",
+            "hegel: failed to deserialize server response: {}\nValue: {:?}",
             e, result
         );
     })
@@ -262,7 +268,7 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T
 /// which improves shrinking. Call `stop_span()` when done.
 pub fn start_span(label: u64) {
     increment_span_depth();
-    if let Err(StopTestError) = send_request("start_span", &json!({"label": label})) {
+    if let Err(StopTestError) = send_request("start_span", &cbor_map! {"label" => label}) {
         decrement_span_depth();
         crate::assume(false);
     }
@@ -275,7 +281,7 @@ pub fn start_span(label: u64) {
 pub fn stop_span(discard: bool) {
     decrement_span_depth();
     // Ignore StopTest errors from stop_span - we're already closing
-    let _ = send_request("stop_span", &json!({"discard": discard}));
+    let _ = send_request("stop_span", &cbor_map! {"discard" => discard});
 }
 
 // ============================================================================
