@@ -1,6 +1,7 @@
 mod binary;
 mod collections;
 mod combinators;
+mod compose;
 mod default;
 mod fixed_dict;
 mod formats;
@@ -17,6 +18,7 @@ mod value;
 pub use binary::binary;
 pub use collections::{hashmaps, hashsets, vecs, HashMapGenerator};
 pub use combinators::{one_of, optional, sampled_from, sampled_from_slice, BoxedGenerator};
+pub use compose::{fnv1a_hash, ComposedGenerator};
 pub use default::DefaultGenerator;
 pub use fixed_dict::fixed_dicts;
 pub use formats::{dates, datetimes, domains, emails, ip_addresses, times, urls};
