@@ -456,10 +456,10 @@ pub mod labels {
     pub const FIXED_DICT: u64 = 10;
     pub const FLAT_MAP: u64 = 11;
     pub const FILTER: u64 = 12;
-    pub const ENUM_VARIANT: u64 = 13;
-    pub const SAMPLED_FROM: u64 = 14;
     /// For .map() transformations (distinct from MAP which is for collections)
-    pub const MAPPED: u64 = 15;
+    pub const MAPPED: u64 = 13;
+    pub const SAMPLED_FROM: u64 = 14;
+    pub const ENUM_VARIANT: u64 = 15;
 }
 
 // ============================================================================
