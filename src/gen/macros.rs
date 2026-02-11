@@ -86,12 +86,6 @@ macro_rules! derive_generator {
                         $($field_name: self.$field_name.generate(),)*
                     }
                 }
-
-                fn as_basic(&self) -> Option<$crate::gen::BasicGenerator<$struct_name>> {
-                    // Struct generators are never basic since we can't deserialize
-                    // arbitrary user structs from CBOR
-                    None
-                }
             }
         }
     };

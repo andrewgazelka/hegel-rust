@@ -5,7 +5,7 @@ use super::Generate;
 /// Use the `compose!` macro to create instances of this type.
 ///
 /// `ComposedGenerator` wraps a closure that produces values by composing
-/// multiple generator calls together. It is never basic (returns `None` from `as_basic()`),
+/// multiple generator calls together. It never has a schema (returns `None` from `schema()`),
 /// since the composition is imperative and cannot be described as a single schema.
 pub struct ComposedGenerator<T, F> {
     f: F,

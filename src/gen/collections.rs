@@ -1,4 +1,4 @@
-use super::{group, integers, labels, BasicGenerator, Collection, Generate};
+use super::{generate_raw, group, integers, labels, Collection, Generate};
 use crate::cbor_helpers::{cbor_map, map_insert};
 use ciborium::Value;
 use std::collections::{HashMap, HashSet};
@@ -44,11 +44,10 @@ impl<G> VecGenerator<G> {
 impl<T, G> Generate<Vec<T>> for VecGenerator<G>
 where
     G: Generate<T>,
-    T: serde::de::DeserializeOwned + 'static,
 {
     fn generate(&self) -> Vec<T> {
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Compositional fallback: use server-managed collection sizing
             group(labels::LIST, || {
@@ -63,14 +62,14 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<Vec<T>>> {
-        let element_basic = self.elements.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let element_schema = self.elements.schema()?;
 
         let schema_type = if self.unique { "set" } else { "list" };
 
         let mut schema = cbor_map! {
             "type" => schema_type,
-            "elements" => element_basic.schema.clone(),
+            "elements" => element_schema,
             "min_size" => self.min_size as u64
         };
 
@@ -78,34 +77,14 @@ where
             map_insert(&mut schema, "max_size", Value::from(max as u64));
         }
 
-        if let Some(transform) = element_basic.transform {
-            // Element has a transform - apply it to each element
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                let arr = extract_array(raw);
-                arr.into_iter().map(|v| transform(v)).collect()
-            }))
-        } else if self.unique {
-            // Sets come as Tag(258, Array), need to unwrap
-            Some(BasicGenerator::with_transform(schema, |raw| {
-                let arr = extract_array(raw);
-                let hegel_values: Vec<Value> = arr;
-                hegel_values
-                    .into_iter()
-                    .map(|v| {
-                        let hv = super::value::HegelValue::from(v.clone());
-                        super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                            panic!(
-                                "hegel: failed to deserialize set element: {}\nValue: {:?}",
-                                e, v
-                            );
-                        })
-                    })
-                    .collect()
-            }))
-        } else {
-            // Identity transform for list elements - use direct deserialization
-            Some(BasicGenerator::new(schema))
-        }
+        Some(schema)
+    }
+
+    fn parse_raw(&self, raw: Value) -> Vec<T> {
+        let arr = extract_array(raw);
+        arr.into_iter()
+            .map(|v| self.elements.parse_raw(v))
+            .collect()
     }
 }
 
@@ -140,20 +119,11 @@ impl<G> HashSetGenerator<G> {
 impl<T, G> Generate<HashSet<T>> for HashSetGenerator<G>
 where
     G: Generate<T>,
-    T: serde::de::DeserializeOwned + Eq + Hash + 'static,
+    T: Eq + Hash,
 {
     fn generate(&self) -> HashSet<T> {
-        // Generate as unique vec, convert to set
-        let vec_gen = VecGenerator {
-            elements: &self.elements,
-            min_size: self.min_size,
-            max_size: self.max_size,
-            unique: true,
-        };
-
-        if let Some(basic) = vec_gen.as_basic() {
-            let vec: Vec<T> = basic.generate();
-            vec.into_iter().collect()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Compositional fallback
             group(labels::SET, || {
@@ -174,12 +144,12 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<HashSet<T>>> {
-        let element_basic = self.elements.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let element_schema = self.elements.schema()?;
 
         let mut schema = cbor_map! {
             "type" => "set",
-            "elements" => element_basic.schema.clone(),
+            "elements" => element_schema,
             "min_size" => self.min_size as u64
         };
 
@@ -187,28 +157,14 @@ where
             map_insert(&mut schema, "max_size", Value::from(max as u64));
         }
 
-        if let Some(transform) = element_basic.transform {
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                let arr = extract_array(raw);
-                arr.into_iter().map(|v| transform(v)).collect()
-            }))
-        } else {
-            // Generate as array then convert elements to HashSet
-            Some(BasicGenerator::with_transform(schema, |raw| {
-                let arr = extract_array(raw);
-                arr.into_iter()
-                    .map(|v| {
-                        let hv = super::value::HegelValue::from(v.clone());
-                        super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                            panic!(
-                                "hegel: failed to deserialize set element: {}\nValue: {:?}",
-                                e, v
-                            );
-                        })
-                    })
-                    .collect()
-            }))
-        }
+        Some(schema)
+    }
+
+    fn parse_raw(&self, raw: Value) -> HashSet<T> {
+        let arr = extract_array(raw);
+        arr.into_iter()
+            .map(|v| self.elements.parse_raw(v))
+            .collect()
     }
 }
 
@@ -243,12 +199,11 @@ impl<K, V, KT, VT> Generate<HashMap<KT, VT>> for HashMapGenerator<K, V>
 where
     K: Generate<KT>,
     V: Generate<VT>,
-    KT: serde::de::DeserializeOwned + Eq + std::hash::Hash + 'static,
-    VT: serde::de::DeserializeOwned + 'static,
+    KT: Eq + std::hash::Hash,
 {
     fn generate(&self) -> HashMap<KT, VT> {
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Compositional fallback
             group(labels::MAP, || {
@@ -274,14 +229,14 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<HashMap<KT, VT>>> {
-        let key_basic = self.keys.as_basic()?;
-        let value_basic = self.values.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let key_schema = self.keys.schema()?;
+        let value_schema = self.values.schema()?;
 
         let mut schema = cbor_map! {
             "type" => "dict",
-            "keys" => key_basic.schema.clone(),
-            "values" => value_basic.schema.clone(),
+            "keys" => key_schema,
+            "values" => value_schema,
             "min_size" => self.min_size as u64
         };
 
@@ -289,54 +244,29 @@ where
             map_insert(&mut schema, "max_size", Value::from(max as u64));
         }
 
-        let key_transform = key_basic.transform;
-        let value_transform = value_basic.transform;
+        Some(schema)
+    }
 
+    fn parse_raw(&self, raw: Value) -> HashMap<KT, VT> {
         // Wire format: [[key, value], ...]
-        // We always need a transform to convert pairs to HashMap
-        Some(BasicGenerator::with_transform(schema, move |raw| {
-            let pairs = match raw {
+        let pairs = match raw {
+            Value::Array(arr) => arr,
+            _ => panic!("Expected array of pairs from dict schema, got {:?}", raw),
+        };
+
+        let mut map = HashMap::new();
+        for pair in pairs {
+            let mut pair_arr = match pair {
                 Value::Array(arr) => arr,
-                _ => panic!("Expected array of pairs from dict schema, got {:?}", raw),
+                _ => panic!("Expected pair array, got {:?}", pair),
             };
-
-            let mut map = HashMap::new();
-            for pair in pairs {
-                let mut pair_arr = match pair {
-                    Value::Array(arr) => arr,
-                    _ => panic!("Expected pair array, got {:?}", pair),
-                };
-                let raw_value = pair_arr.pop().unwrap();
-                let raw_key = pair_arr.pop().unwrap();
-
-                let key = if let Some(ref kt) = key_transform {
-                    kt(raw_key)
-                } else {
-                    let hv = super::value::HegelValue::from(raw_key.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize key: {}\nValue: {:?}",
-                            e, raw_key
-                        );
-                    })
-                };
-
-                let value = if let Some(ref vt) = value_transform {
-                    vt(raw_value)
-                } else {
-                    let hv = super::value::HegelValue::from(raw_value.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize value: {}\nValue: {:?}",
-                            e, raw_value
-                        );
-                    })
-                };
-
-                map.insert(key, value);
-            }
-            map
-        }))
+            let raw_value = pair_arr.pop().unwrap();
+            let raw_key = pair_arr.pop().unwrap();
+            let key = self.keys.parse_raw(raw_key);
+            let value = self.values.parse_raw(raw_value);
+            map.insert(key, value);
+        }
+        map
     }
 }
 

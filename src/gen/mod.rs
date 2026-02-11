@@ -246,32 +246,31 @@ pub fn deserialize_value<T: serde::de::DeserializeOwned>(raw: Value) -> T {
     })
 }
 
-/// Generate a value from a schema.
-pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T {
-    let result = match request_from_schema(schema) {
-        Ok(v) => v,
+/// Send a schema to the server and return the raw CBOR response.
+///
+/// This is the core generation primitive. It handles StopTest errors
+/// and buffers the generated value for last-run display.
+pub fn generate_raw(schema: &Value) -> Value {
+    match request_from_schema(schema) {
+        Ok(v) => {
+            if is_last_run() {
+                buffer_generated_value(&format!(
+                    "Generated: {}",
+                    crate::cbor_helpers::display_value(&v)
+                ));
+            }
+            v
+        }
         Err(StopTestError) => {
-            // Server ran out of data - reject this test case
             crate::assume(false);
             unreachable!("assume(false) should not return")
         }
-    };
-
-    if is_last_run() {
-        buffer_generated_value(&format!(
-            "Generated: {}",
-            crate::cbor_helpers::display_value(&result)
-        ));
     }
+}
 
-    // Convert to HegelValue — ciborium::Value natively preserves NaN/Infinity
-    let hegel_value = value::HegelValue::from(result.clone());
-    value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
-        panic!(
-            "hegel: failed to deserialize server response: {}\nValue: {:?}",
-            e, result
-        );
-    })
+/// Generate a value from a schema, deserializing the result.
+pub fn generate_from_schema<T: serde::de::DeserializeOwned>(schema: &Value) -> T {
+    deserialize_value(generate_raw(schema))
 }
 
 /// Start a span for grouping related generation.
@@ -477,169 +476,33 @@ pub mod labels {
 }
 
 // ============================================================================
-// BasicGenerator - Schema-preserving generator with client-side transform
-// ============================================================================
-
-/// A basic generator: a schema plus an optional client-side transform.
-///
-/// Basic generators enable schema-based generation even after transformations.
-/// The schema is sent to the server, and the transform (if any) is applied
-/// client-side to the raw value returned by the server.
-///
-/// When `map()` is called on a basic generator, the transform is composed
-/// rather than losing the schema, which is the key optimization.
-pub struct BasicGenerator<T> {
-    /// The raw schema sent to the server.
-    pub schema: Value,
-    /// Optional client-side transform applied to the server-generated value.
-    /// When None, the server value is used directly (identity transform).
-    pub transform: Option<Arc<dyn Fn(Value) -> T + Send + Sync>>,
-}
-
-impl<T> Clone for BasicGenerator<T> {
-    fn clone(&self) -> Self {
-        BasicGenerator {
-            schema: self.schema.clone(),
-            transform: self.transform.clone(),
-        }
-    }
-}
-
-// Methods available for any T (no DeserializeOwned required)
-impl<T: 'static> BasicGenerator<T> {
-    /// Create a basic generator with a schema and a transform.
-    ///
-    /// This is the most general constructor - it does not require `T` to be
-    /// deserializable since the transform handles the conversion from `Value`.
-    pub fn with_transform<F: Fn(Value) -> T + Send + Sync + 'static>(
-        schema: Value,
-        transform: F,
-    ) -> Self {
-        BasicGenerator {
-            schema,
-            transform: Some(Arc::new(transform)),
-        }
-    }
-
-    /// Generate a value using this basic generator.
-    ///
-    /// **Panics** if this generator has no transform and `T` is not
-    /// `DeserializeOwned`. Prefer using the `DeserializeOwned`-bounded
-    /// `generate` when the transform may be absent.
-    fn generate_raw(&self) -> Value {
-        match request_from_schema(&self.schema) {
-            Ok(v) => {
-                if is_last_run() {
-                    buffer_generated_value(&format!(
-                        "Generated: {}",
-                        crate::cbor_helpers::display_value(&v)
-                    ));
-                }
-                v
-            }
-            Err(StopTestError) => {
-                crate::assume(false);
-                unreachable!("assume(false) should not return")
-            }
-        }
-    }
-
-    /// Generate a value when this generator is known to have a transform.
-    ///
-    /// Panics if no transform is set.
-    pub fn generate_transformed(&self) -> T {
-        let raw = self.generate_raw();
-        (self
-            .transform
-            .as_ref()
-            .expect("generate_transformed called on identity BasicGenerator"))(raw)
-    }
-}
-
-// Methods that require DeserializeOwned
-impl<T: serde::de::DeserializeOwned + 'static> BasicGenerator<T> {
-    /// Create a basic generator with just a schema (identity transform).
-    ///
-    /// The generated value will be deserialized directly from the server
-    /// response using serde.
-    pub fn new(schema: Value) -> Self {
-        BasicGenerator {
-            schema,
-            transform: None,
-        }
-    }
-
-    /// Generate a value using this basic generator.
-    ///
-    /// If a transform is set, applies it to the raw server value.
-    /// Otherwise, deserializes the raw value directly.
-    pub fn generate(&self) -> T {
-        let raw = self.generate_raw();
-
-        if let Some(ref transform) = self.transform {
-            transform(raw)
-        } else {
-            let hegel_value = value::HegelValue::from(raw.clone());
-            value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
-                panic!(
-                    "hegel: failed to deserialize server response: {}\nValue: {:?}",
-                    e, raw
-                );
-            })
-        }
-    }
-
-    /// Compose a transform on top of this basic generator, producing a new
-    /// basic generator with a different output type.
-    pub fn map<U: 'static, F: Fn(T) -> U + Send + Sync + 'static>(self, f: F) -> BasicGenerator<U> {
-        let schema = self.schema;
-        if let Some(existing_transform) = self.transform {
-            BasicGenerator {
-                schema,
-                transform: Some(Arc::new(move |raw| f(existing_transform(raw)))),
-            }
-        } else {
-            // T is DeserializeOwned, so we deserialize then apply f
-            BasicGenerator {
-                schema,
-                transform: Some(Arc::new(move |raw| {
-                    let hegel_value = value::HegelValue::from(raw.clone());
-                    let deserialized: T =
-                        value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
-                            panic!(
-                                "hegel: failed to deserialize server response: {}\nValue: {:?}",
-                                e, raw
-                            );
-                        });
-                    f(deserialized)
-                })),
-            }
-        }
-    }
-}
-
-// ============================================================================
 // Generate Trait
 // ============================================================================
 
 /// The core trait for all generators.
 ///
-/// Generators produce values of type `T` and optionally provide a
-/// `BasicGenerator` conversion for schema-based generation.
+/// Generators produce values of type `T` and optionally provide a schema
+/// for server-based generation.
 pub trait Generate<T>: Send + Sync {
     /// Generate a value.
     fn generate(&self) -> T;
 
-    /// Convert this generator to a basic generator, if possible.
+    /// Return a JSON schema for server-based generation, if possible.
     ///
-    /// A basic generator has a schema and an optional client-side transform.
     /// When available, this enables single-request schema-based generation
     /// and allows combinators to compose schemas.
     ///
     /// Returns `None` for generators that cannot be expressed as a schema
     /// (e.g., after `flat_map` or `filter`).
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
+    fn schema(&self) -> Option<Value> {
         None
+    }
+
+    /// Convert a raw server response to the generated type.
+    ///
+    /// Only called when `schema()` returns `Some`. Panics by default.
+    fn parse_raw(&self, _raw: Value) -> T {
+        panic!("parse_raw called on a generator without a schema")
     }
 
     /// Transform generated values using a function.
@@ -714,7 +577,11 @@ impl<T, G: Generate<T>> Generate<T> for &G {
         (*self).generate()
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        (*self).as_basic()
+    fn schema(&self) -> Option<Value> {
+        (*self).schema()
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        (*self).parse_raw(raw)
     }
 }

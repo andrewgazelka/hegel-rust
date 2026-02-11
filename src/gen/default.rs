@@ -86,6 +86,13 @@ impl DefaultGenerator for u64 {
     }
 }
 
+impl DefaultGenerator for usize {
+    type Generator = IntegerGenerator<usize>;
+    fn default_generator() -> Self::Generator {
+        integers()
+    }
+}
+
 impl DefaultGenerator for f32 {
     type Generator = FloatGenerator<f32>;
     fn default_generator() -> Self::Generator {
@@ -100,9 +107,9 @@ impl DefaultGenerator for f64 {
     }
 }
 
-impl<T: DefaultGenerator + 'static> DefaultGenerator for Option<T>
+impl<T: DefaultGenerator> DefaultGenerator for Option<T>
 where
-    T: serde::de::DeserializeOwned,
+    T::Generator: Send + Sync,
 {
     type Generator = OptionalGenerator<T::Generator>;
     fn default_generator() -> Self::Generator {
@@ -110,9 +117,9 @@ where
     }
 }
 
-impl<T: DefaultGenerator + 'static> DefaultGenerator for Vec<T>
+impl<T: DefaultGenerator> DefaultGenerator for Vec<T>
 where
-    T: serde::de::DeserializeOwned,
+    T::Generator: Send + Sync,
 {
     type Generator = VecGenerator<T::Generator>;
     fn default_generator() -> Self::Generator {
@@ -120,11 +127,11 @@ where
     }
 }
 
-impl<K: DefaultGenerator + 'static, V: DefaultGenerator + 'static> DefaultGenerator
-    for HashMap<K, V>
+impl<K: DefaultGenerator, V: DefaultGenerator> DefaultGenerator for HashMap<K, V>
 where
-    K: serde::de::DeserializeOwned + Eq + Hash,
-    V: serde::de::DeserializeOwned,
+    K: Eq + Hash,
+    K::Generator: Send + Sync,
+    V::Generator: Send + Sync,
 {
     type Generator = HashMapGenerator<K::Generator, V::Generator>;
     fn default_generator() -> Self::Generator {

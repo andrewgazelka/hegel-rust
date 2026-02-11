@@ -1,5 +1,6 @@
-use super::{BasicGenerator, Generate};
+use super::{generate_raw, Generate};
 use crate::cbor_helpers::{cbor_map, cbor_serialize};
+use ciborium::Value;
 
 pub fn unit() -> JustGenerator<()> {
     just(())
@@ -7,31 +8,30 @@ pub fn unit() -> JustGenerator<()> {
 
 pub struct JustGenerator<T> {
     value: T,
-    cached_basic: Option<BasicGenerator<T>>,
+    schema: Option<Value>,
 }
 
-impl<T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static> Generate<T>
+impl<T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned> Generate<T>
     for JustGenerator<T>
 {
     fn generate(&self) -> T {
         self.value.clone()
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        self.cached_basic.clone()
+    fn schema(&self) -> Option<Value> {
+        self.schema.clone()
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        super::deserialize_value(raw)
     }
 }
 
-pub fn just<T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static>(
+pub fn just<T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned>(
     value: T,
 ) -> JustGenerator<T> {
-    let cached_basic = Some(BasicGenerator::new(
-        cbor_map! {"const" => cbor_serialize(&value)},
-    ));
-    JustGenerator {
-        value,
-        cached_basic,
-    }
+    let schema = Some(cbor_map! {"const" => cbor_serialize(&value)});
+    JustGenerator { value, schema }
 }
 
 pub struct JustAnyGenerator<T> {
@@ -47,22 +47,22 @@ pub fn just_any<T: Clone + Send + Sync>(value: T) -> JustAnyGenerator<T> {
     JustAnyGenerator { value }
 }
 
-pub struct BoolGenerator {
-    cached_basic: Option<BasicGenerator<bool>>,
-}
+pub struct BoolGenerator;
 
 impl Generate<bool> for BoolGenerator {
     fn generate(&self) -> bool {
-        self.as_basic().unwrap().generate()
+        self.parse_raw(generate_raw(&self.schema().unwrap()))
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<bool>> {
-        self.cached_basic.clone()
+    fn schema(&self) -> Option<Value> {
+        Some(cbor_map! {"type" => "boolean"})
+    }
+
+    fn parse_raw(&self, raw: Value) -> bool {
+        super::deserialize_value(raw)
     }
 }
 
 pub fn booleans() -> BoolGenerator {
-    BoolGenerator {
-        cached_basic: Some(BasicGenerator::new(cbor_map! {"type" => "boolean"})),
-    }
+    BoolGenerator
 }

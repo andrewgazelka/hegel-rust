@@ -1,5 +1,6 @@
-use super::{BasicGenerator, Generate};
+use super::{generate_raw, Generate};
 use crate::cbor_helpers::{cbor_map, cbor_serialize, map_insert};
+use ciborium::Value;
 use num::{Bounded, Float as NumFloat, Integer as NumInteger};
 use std::marker::PhantomData;
 
@@ -25,30 +26,27 @@ impl<T> IntegerGenerator<T> {
 
 impl<T> Generate<T> for IntegerGenerator<T>
 where
-    T: serde::de::DeserializeOwned
-        + serde::Serialize
-        + Bounded
-        + NumInteger
-        + Send
-        + Sync
-        + Copy
-        + 'static,
+    T: serde::de::DeserializeOwned + serde::Serialize + Bounded + NumInteger + Send + Sync + Copy,
 {
     fn generate(&self) -> T {
-        self.as_basic().unwrap().generate()
+        self.parse_raw(generate_raw(&self.schema().unwrap()))
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
+    fn schema(&self) -> Option<Value> {
         // Always include bounds - use type's min/max as defaults since Hegel
         // generates arbitrary precision integers without bounds
         let min = self.min.unwrap_or_else(T::min_value);
         let max = self.max.unwrap_or_else(T::max_value);
 
-        Some(BasicGenerator::new(cbor_map! {
+        Some(cbor_map! {
             "type" => "integer",
             "minimum" => cbor_serialize(&min),
             "maximum" => cbor_serialize(&max)
-        }))
+        })
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        super::deserialize_value(raw)
     }
 }
 
@@ -134,13 +132,13 @@ impl<T> FloatGenerator<T> {
 
 impl<T> Generate<T> for FloatGenerator<T>
 where
-    T: serde::de::DeserializeOwned + serde::Serialize + NumFloat + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + serde::Serialize + NumFloat + Send + Sync,
 {
     fn generate(&self) -> T {
-        self.as_basic().unwrap().generate()
+        self.parse_raw(generate_raw(&self.schema().unwrap()))
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
+    fn schema(&self) -> Option<Value> {
         let width = (std::mem::size_of::<T>() * 8) as u64;
 
         let mut schema = cbor_map! {
@@ -172,7 +170,11 @@ where
             }
         }
 
-        Some(BasicGenerator::new(schema))
+        Some(schema)
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        super::deserialize_value(raw)
     }
 }
 

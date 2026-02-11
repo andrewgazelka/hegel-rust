@@ -110,7 +110,7 @@ pub enum HegelRandom {
 }
 
 // Dummy Deserialize impl to satisfy trait bounds when composing with vecs(), etc.
-// This is never called at runtime since randoms().as_basic() returns None,
+// This is never called at runtime since randoms().schema() returns None,
 // causing collection generators to use compositional fallback.
 impl<'de> serde::Deserialize<'de> for HegelRandom {
     fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>

@@ -1,4 +1,4 @@
-use super::{group, labels, BasicGenerator, Generate};
+use super::{generate_raw, group, labels, Generate};
 use crate::cbor_helpers::{cbor_array, cbor_map};
 use ciborium::Value;
 
@@ -11,12 +11,10 @@ impl<T1, T2, G1, G2> Generate<(T1, T2)> for Tuple2Generator<G1, G2>
 where
     G1: Generate<T1>,
     G2: Generate<T2>,
-    T1: serde::de::DeserializeOwned + 'static,
-    T2: serde::de::DeserializeOwned + 'static,
 {
     fn generate(&self) -> (T1, T2) {
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             group(labels::TUPLE, || {
                 let v1 = self.gen1.generate();
@@ -26,59 +24,29 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<(T1, T2)>> {
-        let b1 = self.gen1.as_basic()?;
-        let b2 = self.gen2.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let s1 = self.gen1.schema()?;
+        let s2 = self.gen2.schema()?;
 
-        let schema = cbor_map! {
+        Some(cbor_map! {
             "type" => "tuple",
-            "elements" => cbor_array![b1.schema.clone(), b2.schema.clone()]
+            "elements" => cbor_array![s1, s2]
+        })
+    }
+
+    fn parse_raw(&self, raw: Value) -> (T1, T2) {
+        let arr = match raw {
+            Value::Array(arr) => arr,
+            _ => panic!("Expected array from tuple schema, got {:?}", raw),
         };
-
-        let has_transforms = b1.transform.is_some() || b2.transform.is_some();
-
-        if has_transforms {
-            let t1 = b1.transform;
-            let t2 = b2.transform;
-
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                let arr = match raw {
-                    Value::Array(arr) => arr,
-                    _ => panic!("Expected array from tuple schema, got {:?}", raw),
-                };
-                let mut iter = arr.into_iter();
-                let v1_raw = iter.next().expect("tuple missing element 0");
-                let v2_raw = iter.next().expect("tuple missing element 1");
-
-                let v1 = if let Some(ref t) = t1 {
-                    t(v1_raw)
-                } else {
-                    let hv = super::value::HegelValue::from(v1_raw.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize tuple element 0: {}\nValue: {:?}",
-                            e, v1_raw
-                        );
-                    })
-                };
-
-                let v2 = if let Some(ref t) = t2 {
-                    t(v2_raw)
-                } else {
-                    let hv = super::value::HegelValue::from(v2_raw.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize tuple element 1: {}\nValue: {:?}",
-                            e, v2_raw
-                        );
-                    })
-                };
-
-                (v1, v2)
-            }))
-        } else {
-            Some(BasicGenerator::new(schema))
-        }
+        let mut iter = arr.into_iter();
+        let v1 = self
+            .gen1
+            .parse_raw(iter.next().expect("tuple missing element 0"));
+        let v2 = self
+            .gen2
+            .parse_raw(iter.next().expect("tuple missing element 1"));
+        (v1, v2)
     }
 }
 
@@ -100,13 +68,10 @@ where
     G1: Generate<T1>,
     G2: Generate<T2>,
     G3: Generate<T3>,
-    T1: serde::de::DeserializeOwned + 'static,
-    T2: serde::de::DeserializeOwned + 'static,
-    T3: serde::de::DeserializeOwned + 'static,
 {
     fn generate(&self) -> (T1, T2, T3) {
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             group(labels::TUPLE, || {
                 let v1 = self.gen1.generate();
@@ -117,75 +82,33 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<(T1, T2, T3)>> {
-        let b1 = self.gen1.as_basic()?;
-        let b2 = self.gen2.as_basic()?;
-        let b3 = self.gen3.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let s1 = self.gen1.schema()?;
+        let s2 = self.gen2.schema()?;
+        let s3 = self.gen3.schema()?;
 
-        let schema = cbor_map! {
+        Some(cbor_map! {
             "type" => "tuple",
-            "elements" => cbor_array![b1.schema.clone(), b2.schema.clone(), b3.schema.clone()]
+            "elements" => cbor_array![s1, s2, s3]
+        })
+    }
+
+    fn parse_raw(&self, raw: Value) -> (T1, T2, T3) {
+        let arr = match raw {
+            Value::Array(arr) => arr,
+            _ => panic!("Expected array from tuple schema, got {:?}", raw),
         };
-
-        let has_transforms =
-            b1.transform.is_some() || b2.transform.is_some() || b3.transform.is_some();
-
-        if has_transforms {
-            let t1 = b1.transform;
-            let t2 = b2.transform;
-            let t3 = b3.transform;
-
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                let arr = match raw {
-                    Value::Array(arr) => arr,
-                    _ => panic!("Expected array from tuple schema, got {:?}", raw),
-                };
-                let mut iter = arr.into_iter();
-                let v1_raw = iter.next().expect("tuple missing element 0");
-                let v2_raw = iter.next().expect("tuple missing element 1");
-                let v3_raw = iter.next().expect("tuple missing element 2");
-
-                let v1 = if let Some(ref t) = t1 {
-                    t(v1_raw)
-                } else {
-                    let hv = super::value::HegelValue::from(v1_raw.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize tuple element 0: {}\nValue: {:?}",
-                            e, v1_raw
-                        );
-                    })
-                };
-
-                let v2 = if let Some(ref t) = t2 {
-                    t(v2_raw)
-                } else {
-                    let hv = super::value::HegelValue::from(v2_raw.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize tuple element 1: {}\nValue: {:?}",
-                            e, v2_raw
-                        );
-                    })
-                };
-
-                let v3 = if let Some(ref t) = t3 {
-                    t(v3_raw)
-                } else {
-                    let hv = super::value::HegelValue::from(v3_raw.clone());
-                    super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize tuple element 2: {}\nValue: {:?}",
-                            e, v3_raw
-                        );
-                    })
-                };
-
-                (v1, v2, v3)
-            }))
-        } else {
-            Some(BasicGenerator::new(schema))
-        }
+        let mut iter = arr.into_iter();
+        let v1 = self
+            .gen1
+            .parse_raw(iter.next().expect("tuple missing element 0"));
+        let v2 = self
+            .gen2
+            .parse_raw(iter.next().expect("tuple missing element 1"));
+        let v3 = self
+            .gen3
+            .parse_raw(iter.next().expect("tuple missing element 2"));
+        (v1, v2, v3)
     }
 }
 

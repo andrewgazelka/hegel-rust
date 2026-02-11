@@ -1,5 +1,5 @@
 use super::{
-    discardable_group, generate_from_schema, group, integers, labels, BasicGenerator, Generate,
+    discardable_group, generate_from_schema, generate_raw, group, integers, labels, Generate,
 };
 use crate::cbor_helpers::{cbor_array, cbor_map, cbor_serialize};
 use ciborium::Value;
@@ -14,24 +14,23 @@ pub struct Mapped<T, U, F, G> {
 
 impl<T, U, F, G> Generate<U> for Mapped<T, U, F, G>
 where
-    T: serde::de::DeserializeOwned + 'static,
-    U: 'static,
     G: Generate<T>,
-    F: Fn(T) -> U + Send + Sync + Clone + 'static,
+    F: Fn(T) -> U + Send + Sync,
 {
     fn generate(&self) -> U {
-        if let Some(basic) = self.as_basic() {
-            // Always has a transform (created via BasicGenerator::map), so
-            // generate_transformed() works even when U isn't DeserializeOwned.
-            basic.generate_transformed()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             group(labels::MAPPED, || (self.f)(self.source.generate()))
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<U>> {
-        let source_basic = self.source.as_basic()?;
-        Some(source_basic.map(self.f.clone()))
+    fn schema(&self) -> Option<Value> {
+        self.source.schema()
+    }
+
+    fn parse_raw(&self, raw: Value) -> U {
+        (self.f)(self.source.parse_raw(raw))
     }
 }
 
@@ -159,8 +158,12 @@ impl<'a, T> Generate<T> for BoxedGenerator<'a, T> {
         self.inner.generate()
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        self.inner.as_basic()
+    fn schema(&self) -> Option<Value> {
+        self.inner.schema()
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        self.inner.parse_raw(raw)
     }
 
     /// Returns self without re-wrapping.
@@ -174,16 +177,14 @@ impl<'a, T> Generate<T> for BoxedGenerator<'a, T> {
 
 pub struct SampledFromGenerator<T> {
     elements: Vec<T>,
-    cached_basic: Option<BasicGenerator<T>>,
 }
 
-impl<T: Clone + Send + Sync + serde::Serialize + 'static> Generate<T> for SampledFromGenerator<T> {
+impl<T: Clone + Send + Sync + serde::Serialize> Generate<T> for SampledFromGenerator<T> {
     fn generate(&self) -> T {
         crate::assume(!self.elements.is_empty());
 
-        // Check if elements are primitive enough for sampled_from schema
-        if let Some(basic) = self.as_basic() {
-            return basic.generate_transformed();
+        if let Some(schema) = self.schema() {
+            return self.parse_raw(generate_raw(&schema));
         }
 
         // Generate index and pick
@@ -194,75 +195,56 @@ impl<T: Clone + Send + Sync + serde::Serialize + 'static> Generate<T> for Sample
         self.elements[idx].clone()
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        self.cached_basic.clone()
+    fn schema(&self) -> Option<Value> {
+        if self.elements.is_empty() {
+            return None;
+        }
+
+        // Only use sampled_from schema for CBOR-primitive types
+        let cbor_values: Vec<Value> = self.elements.iter().map(|e| cbor_serialize(e)).collect();
+
+        let all_primitive = cbor_values.iter().all(|v| {
+            matches!(
+                v,
+                Value::Null | Value::Bool(_) | Value::Integer(_) | Value::Float(_) | Value::Text(_)
+            )
+        });
+
+        if all_primitive {
+            Some(cbor_map! {
+                "type" => "integer",
+                "minimum" => 0u64,
+                "maximum" => (self.elements.len() - 1) as u64
+            })
+        } else {
+            None
+        }
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        let idx: usize = super::deserialize_value(raw);
+        self.elements[idx].clone()
     }
 }
 
-fn compute_sampled_basic<T: Clone + Send + Sync + serde::Serialize + 'static>(
-    elements: &[T],
-) -> Option<BasicGenerator<T>> {
-    if elements.is_empty() {
-        return None;
-    }
-
-    // Only use sampled_from schema for CBOR-primitive types
-    let cbor_values: Vec<Value> = elements.iter().map(|e| cbor_serialize(e)).collect();
-
-    // Check if all values are primitives (not maps/arrays)
-    let all_primitive = cbor_values.iter().all(|v| {
-        matches!(
-            v,
-            Value::Null | Value::Bool(_) | Value::Integer(_) | Value::Float(_) | Value::Text(_)
-        )
-    });
-
-    if all_primitive {
-        // Use index-based approach: generate an index, then return the element
-        let elements = elements.to_vec();
-        let schema = cbor_map! {
-            "type" => "integer",
-            "minimum" => 0u64,
-            "maximum" => (elements.len() - 1) as u64
-        };
-        Some(BasicGenerator::with_transform(schema, move |raw| {
-            let hv = super::value::HegelValue::from(raw.clone());
-            let idx: usize = super::value::from_hegel_value(hv).unwrap_or_else(|e| {
-                panic!(
-                    "hegel: failed to deserialize index: {}\nValue: {:?}",
-                    e, raw
-                );
-            });
-            elements[idx].clone()
-        }))
-    } else {
-        None
-    }
-}
-
-pub fn sampled_from<T: Clone + Send + Sync + serde::Serialize + 'static>(
+pub fn sampled_from<T: Clone + Send + Sync + serde::Serialize>(
     elements: Vec<T>,
 ) -> SampledFromGenerator<T> {
-    let cached_basic = compute_sampled_basic(&elements);
-    SampledFromGenerator {
-        elements,
-        cached_basic,
-    }
+    SampledFromGenerator { elements }
 }
 
 pub struct SampledFromSliceGenerator<'a, T> {
     elements: &'a [T],
-    cached_basic: Option<BasicGenerator<T>>,
 }
 
-impl<'a, T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static>
-    Generate<T> for SampledFromSliceGenerator<'a, T>
+impl<'a, T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned> Generate<T>
+    for SampledFromSliceGenerator<'a, T>
 {
     fn generate(&self) -> T {
         crate::assume(!self.elements.is_empty());
 
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Compositional fallback
             group(labels::SAMPLED_FROM, || {
@@ -275,8 +257,16 @@ impl<'a, T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        self.cached_basic.clone()
+    fn schema(&self) -> Option<Value> {
+        if self.elements.is_empty() {
+            return None;
+        }
+        let cbor_values: Vec<Value> = self.elements.iter().map(|e| cbor_serialize(e)).collect();
+        Some(cbor_map! {"sampled_from" => Value::Array(cbor_values)})
+    }
+
+    fn parse_raw(&self, raw: Value) -> T {
+        super::deserialize_value(raw)
     }
 }
 
@@ -299,30 +289,23 @@ unsafe impl<'a, T: Send + Sync> Sync for SampledFromSliceGenerator<'a, T> {}
 /// let value = gen.generate();
 /// ```
 pub fn sampled_from_slice<
-    T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    T: Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned,
 >(
     elements: &[T],
 ) -> SampledFromSliceGenerator<'_, T> {
-    let cbor_values: Vec<Value> = elements.iter().map(|e| cbor_serialize(e)).collect();
-    let cached_basic = Some(BasicGenerator::new(
-        cbor_map! {"sampled_from" => Value::Array(cbor_values)},
-    ));
-    SampledFromSliceGenerator {
-        elements,
-        cached_basic,
-    }
+    SampledFromSliceGenerator { elements }
 }
 
 pub struct OneOfGenerator<'a, T> {
     generators: Vec<BoxedGenerator<'a, T>>,
 }
 
-impl<'a, T: serde::de::DeserializeOwned + 'static> Generate<T> for OneOfGenerator<'a, T> {
+impl<'a, T> Generate<T> for OneOfGenerator<'a, T> {
     fn generate(&self) -> T {
         crate::assume(!self.generators.is_empty());
 
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Generate index and delegate
             group(labels::ONE_OF, || {
@@ -335,69 +318,43 @@ impl<'a, T: serde::de::DeserializeOwned + 'static> Generate<T> for OneOfGenerato
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<T>> {
-        // Collect basic generators from all branches
-        let basics: Option<Vec<BasicGenerator<T>>> =
-            self.generators.iter().map(|g| g.as_basic()).collect();
-        let basics = basics?;
-
-        // Check if all have identity transforms (simple case)
-        let all_identity = basics.iter().all(|b| b.transform.is_none());
-
-        if all_identity {
-            let schemas: Vec<Value> = basics.iter().map(|b| b.schema.clone()).collect();
-            Some(BasicGenerator::new(
-                cbor_map! {"one_of" => Value::Array(schemas)},
-            ))
-        } else {
-            // Use tagged tuples: each branch becomes [const_tag, value]
-            let tagged_schemas: Vec<Value> = basics
-                .iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    cbor_map! {
-                        "type" => "tuple",
-                        "elements" => cbor_array![
-                            cbor_map!{"const" => Value::Integer(ciborium::value::Integer::from(i as i64))},
-                            b.schema.clone()
-                        ]
-                    }
+    fn schema(&self) -> Option<Value> {
+        // Always use tagged tuples: each branch becomes [const_tag, value]
+        let tagged_schemas: Option<Vec<Value>> = self
+            .generators
+            .iter()
+            .enumerate()
+            .map(|(i, g)| {
+                let s = g.schema()?;
+                Some(cbor_map! {
+                    "type" => "tuple",
+                    "elements" => cbor_array![
+                        cbor_map!{"const" => Value::Integer(ciborium::value::Integer::from(i as i64))},
+                        s
+                    ]
                 })
-                .collect();
+            })
+            .collect();
+        let tagged_schemas = tagged_schemas?;
 
-            let schema = cbor_map! {"one_of" => Value::Array(tagged_schemas)};
+        Some(cbor_map! {"one_of" => Value::Array(tagged_schemas)})
+    }
 
-            type Transform<T> = Option<Arc<dyn Fn(Value) -> T + Send + Sync>>;
-            let transforms: Vec<Transform<T>> = basics.into_iter().map(|b| b.transform).collect();
-
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                // raw is a tagged tuple [tag, value]
-                let arr = match raw {
-                    Value::Array(arr) => arr,
-                    _ => panic!("Expected array from tagged tuple, got {:?}", raw),
-                };
-                let tag = match &arr[0] {
-                    Value::Integer(i) => {
-                        let val: i128 = (*i).into();
-                        val as usize
-                    }
-                    _ => panic!("Expected integer tag, got {:?}", arr[0]),
-                };
-                let value = arr.into_iter().nth(1).unwrap();
-
-                if let Some(ref transform) = transforms[tag] {
-                    transform(value)
-                } else {
-                    let hegel_value = super::value::HegelValue::from(value.clone());
-                    super::value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
-                        panic!(
-                            "hegel: failed to deserialize server response: {}\nValue: {:?}",
-                            e, value
-                        );
-                    })
-                }
-            }))
-        }
+    fn parse_raw(&self, raw: Value) -> T {
+        // raw is a tagged tuple [tag, value]
+        let arr = match raw {
+            Value::Array(arr) => arr,
+            _ => panic!("Expected array from tagged tuple, got {:?}", raw),
+        };
+        let tag = match &arr[0] {
+            Value::Integer(i) => {
+                let val: i128 = (*i).into();
+                val as usize
+            }
+            _ => panic!("Expected integer tag, got {:?}", arr[0]),
+        };
+        let value = arr.into_iter().nth(1).unwrap();
+        self.generators[tag].parse_raw(value)
     }
 }
 
@@ -440,11 +397,10 @@ pub struct OptionalGenerator<G> {
 impl<T, G> Generate<Option<T>> for OptionalGenerator<G>
 where
     G: Generate<T>,
-    T: serde::de::DeserializeOwned + 'static,
 {
     fn generate(&self) -> Option<T> {
-        if let Some(basic) = self.as_basic() {
-            basic.generate()
+        if let Some(schema) = self.schema() {
+            self.parse_raw(generate_raw(&schema))
         } else {
             // Compositional fallback
             group(labels::OPTIONAL, || {
@@ -458,57 +414,46 @@ where
         }
     }
 
-    fn as_basic(&self) -> Option<BasicGenerator<Option<T>>> {
-        let inner_basic = self.inner.as_basic()?;
+    fn schema(&self) -> Option<Value> {
+        let inner_schema = self.inner.schema()?;
 
-        if inner_basic.transform.is_none() {
-            // Simple case: no transform, compose schemas directly
-            let schema = cbor_map! {
-                "one_of" => cbor_array![
-                    cbor_map!{"type" => "null"},
-                    inner_basic.schema
-                ]
-            };
-            Some(BasicGenerator::new(schema))
+        // Always use tagged tuples
+        let null_schema = cbor_map! {
+            "type" => "tuple",
+            "elements" => cbor_array![
+                cbor_map!{"const" => Value::Integer(0.into())},
+                cbor_map!{"type" => "null"}
+            ]
+        };
+        let value_schema = cbor_map! {
+            "type" => "tuple",
+            "elements" => cbor_array![
+                cbor_map!{"const" => Value::Integer(1.into())},
+                inner_schema
+            ]
+        };
+
+        Some(cbor_map! {"one_of" => cbor_array![null_schema, value_schema]})
+    }
+
+    fn parse_raw(&self, raw: Value) -> Option<T> {
+        let arr = match raw {
+            Value::Array(arr) => arr,
+            _ => panic!("Expected array from tagged tuple, got {:?}", raw),
+        };
+        let tag = match &arr[0] {
+            Value::Integer(i) => {
+                let val: i128 = (*i).into();
+                val as usize
+            }
+            _ => panic!("Expected integer tag, got {:?}", arr[0]),
+        };
+
+        if tag == 0 {
+            None
         } else {
-            // Inner has transform, use tagged tuples approach
-            let null_schema = cbor_map! {"type" => "tuple", "elements" => cbor_array![cbor_map!{"const" => Value::Integer(0.into())}, cbor_map!{"type" => "null"}]};
-            let value_schema = cbor_map! {"type" => "tuple", "elements" => cbor_array![cbor_map!{"const" => Value::Integer(1.into())}, inner_basic.schema]};
-            let schema = cbor_map! {"one_of" => cbor_array![null_schema, value_schema]};
-
-            let transform = inner_basic.transform;
-            Some(BasicGenerator::with_transform(schema, move |raw| {
-                let arr = match raw {
-                    Value::Array(arr) => arr,
-                    _ => panic!("Expected array from tagged tuple, got {:?}", raw),
-                };
-                let tag = match &arr[0] {
-                    Value::Integer(i) => {
-                        let val: i128 = (*i).into();
-                        val as usize
-                    }
-                    _ => panic!("Expected integer tag, got {:?}", arr[0]),
-                };
-
-                if tag == 0 {
-                    None
-                } else {
-                    let value = arr.into_iter().nth(1).unwrap();
-                    if let Some(ref t) = transform {
-                        Some(t(value))
-                    } else {
-                        let hegel_value = super::value::HegelValue::from(value.clone());
-                        Some(
-                            super::value::from_hegel_value(hegel_value).unwrap_or_else(|e| {
-                                panic!(
-                                    "hegel: failed to deserialize server response: {}\nValue: {:?}",
-                                    e, value
-                                );
-                            }),
-                        )
-                    }
-                }
-            }))
+            let value = arr.into_iter().nth(1).unwrap();
+            Some(self.inner.parse_raw(value))
         }
     }
 }
