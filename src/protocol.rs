@@ -27,10 +27,9 @@ const CLOSE_CHANNEL_PAYLOAD: &[u8] = &[0xFE];
 /// Special message ID used for channel close packets.
 const CLOSE_CHANNEL_MESSAGE_ID: u32 = (1u32 << 31) - 1;
 
-/// Version negotiation message sent by client
-pub const VERSION_NEGOTIATION_MESSAGE: &[u8] = b"Hegel/1.0";
-/// Expected response for successful version negotiation
-pub const VERSION_NEGOTIATION_OK: &[u8] = b"Ok";
+/// Supported hegel-core protocol versions.
+pub const SUPPORTED_PROTOCOL_VERSIONS: (f64, f64) = (0.1, 0.1);
+pub const HANDSHAKE_STRING: &[u8] = b"hegel_handshake_start";
 
 /// A packet in the wire protocol.
 #[derive(Debug, Clone)]

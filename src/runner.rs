@@ -2,7 +2,7 @@ use crate::gen::{
     clear_connection, set_connection, set_is_last_run, take_generated_values, CONNECTION,
     TEST_ABORTED,
 };
-use crate::protocol::{Channel, Connection, VERSION_NEGOTIATION_MESSAGE, VERSION_NEGOTIATION_OK};
+use crate::protocol::{Channel, Connection, HANDSHAKE_STRING, SUPPORTED_PROTOCOL_VERSIONS};
 use ciborium::Value;
 
 use crate::cbor_helpers::{as_bool, as_text, as_u64, cbor_map, map_get};
@@ -325,19 +325,33 @@ where
         let connection = Connection::new(stream);
 
         // Initiate version negotiation (SDK is the client)
+        let (lo, hi) = SUPPORTED_PROTOCOL_VERSIONS;
         let control = connection.control_channel();
         let req_id = control
-            .send_request(VERSION_NEGOTIATION_MESSAGE.to_vec())
+            .send_request(HANDSHAKE_STRING.to_vec())
             .expect("Failed to send version negotiation");
         let response = control
             .receive_response(req_id)
             .expect("Failed to receive version response");
 
-        if response != VERSION_NEGOTIATION_OK {
+        let decoded = String::from_utf8_lossy(&response);
+        let server_version = match decoded.strip_prefix("Hegel/") {
+            Some(v) => v,
+            None => {
+                let _ = child.kill();
+                panic!("Bad handshake response: {decoded:?}");
+            }
+        };
+        let v: f64 = server_version.parse().unwrap_or_else(|_| {
+            let _ = child.kill();
+            panic!("Bad version number: {server_version}");
+        });
+        if !(lo <= v && v <= hi) {
             let _ = child.kill();
             panic!(
-                "Version negotiation failed: {:?}",
-                String::from_utf8_lossy(&response)
+                "hegel-rust supports protocol versions {lo} through {hi}, but \
+                 got server version {v}. Upgrading hegel-rust or downgrading \
+                 your hegel cli might help."
             );
         }
 
