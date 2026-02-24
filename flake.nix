@@ -8,11 +8,10 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      hegel,
-      ...
+    { self
+    , nixpkgs
+    , hegel
+    , ...
     }:
     let
       supportedSystems = [
@@ -42,6 +41,8 @@
           };
         }
       );
+
+      formatter.x86_64-linux = nixpkgs.legacyPackages.x86_64-linux.nixpkgs-fmt;
 
       devShells = forAllSystems (
         system:
