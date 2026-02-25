@@ -1,4 +1,4 @@
-use super::{group, labels, BasicGenerator, BoxedGenerator, Generate};
+use super::{labels, BasicGenerator, BoxedGenerator, ConjectureData, Generate};
 use crate::cbor_helpers::cbor_map;
 use ciborium::Value;
 use std::marker::PhantomData;
@@ -10,8 +10,8 @@ pub(crate) struct MappedToValue<T, G> {
 }
 
 impl<T: serde::Serialize, G: Generate<T>> Generate<Value> for MappedToValue<T, G> {
-    fn do_generate(&self) -> Value {
-        crate::cbor_helpers::cbor_serialize(&self.inner.do_generate())
+    fn do_draw(&self, data: &ConjectureData) -> Value {
+        crate::cbor_helpers::cbor_serialize(&self.inner.do_draw(data))
     }
 
     fn as_basic(&self) -> Option<BasicGenerator<'_, Value>> {
@@ -56,16 +56,16 @@ pub struct FixedDictGenerator<'a> {
 }
 
 impl<'a> Generate<Value> for FixedDictGenerator<'a> {
-    fn do_generate(&self) -> Value {
+    fn do_draw(&self, data: &ConjectureData) -> Value {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Compositional fallback
-            group(labels::FIXED_DICT, || {
+            data.span_group(labels::FIXED_DICT, || {
                 let entries: Vec<(Value, Value)> = self
                     .fields
                     .iter()
-                    .map(|(name, gen)| (Value::Text(name.clone()), gen.do_generate()))
+                    .map(|(name, gen)| (Value::Text(name.clone()), gen.do_draw(data)))
                     .collect();
                 Value::Map(entries)
             })

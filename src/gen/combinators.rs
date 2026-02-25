@@ -1,6 +1,4 @@
-use super::{
-    discardable_group, generate_from_schema, group, integers, labels, BasicGenerator, Generate,
-};
+use super::{integers, labels, BasicGenerator, ConjectureData, Generate};
 use crate::cbor_helpers::{cbor_array, cbor_map};
 use ciborium::Value;
 use std::marker::PhantomData;
@@ -17,11 +15,11 @@ where
     G: Generate<T>,
     F: Fn(T) -> U + Send + Sync,
 {
-    fn do_generate(&self) -> U {
+    fn do_draw(&self, data: &ConjectureData) -> U {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
-            group(labels::MAPPED, || (self.f)(self.source.do_generate()))
+            data.span_group(labels::MAPPED, || (self.f)(self.source.do_draw(data)))
         }
     }
 
@@ -44,11 +42,11 @@ where
     G2: Generate<U>,
     F: Fn(T) -> G2 + Send + Sync,
 {
-    fn do_generate(&self) -> U {
-        group(labels::FLAT_MAP, || {
-            let intermediate = self.source.do_generate();
+    fn do_draw(&self, data: &ConjectureData) -> U {
+        data.span_group(labels::FLAT_MAP, || {
+            let intermediate = self.source.do_draw(data);
             let next_gen = (self.f)(intermediate);
-            next_gen.do_generate()
+            next_gen.do_draw(data)
         })
     }
 }
@@ -64,10 +62,10 @@ where
     G: Generate<T>,
     F: Fn(&T) -> bool + Send + Sync,
 {
-    fn do_generate(&self) -> T {
+    fn do_draw(&self, data: &ConjectureData) -> T {
         for _ in 0..3 {
-            if let Some(value) = discardable_group(labels::FILTER, || {
-                let value = self.source.do_generate();
+            if let Some(value) = data.discardable_span_group(labels::FILTER, || {
+                let value = self.source.do_draw(data);
                 if (self.predicate)(&value) {
                     Some(value)
                 } else {
@@ -109,8 +107,8 @@ impl<'a, T> Clone for BoxedGenerator<'a, T> {
 }
 
 impl<'a, T> Generate<T> for BoxedGenerator<'a, T> {
-    fn do_generate(&self) -> T {
-        self.inner.do_generate()
+    fn do_draw(&self, data: &ConjectureData) -> T {
+        self.inner.do_draw(data)
     }
 
     fn as_basic(&self) -> Option<BasicGenerator<'_, T>> {
@@ -131,18 +129,18 @@ pub struct SampledFromGenerator<T> {
 }
 
 impl<T: Clone + Send + Sync> Generate<T> for SampledFromGenerator<T> {
-    fn do_generate(&self) -> T {
+    fn do_draw(&self, data: &ConjectureData) -> T {
         crate::assume(!self.elements.is_empty());
 
         if let Some(basic) = self.as_basic() {
-            return basic.do_generate();
+            return basic.do_draw(data);
         }
 
         // Generate index and pick
         let idx_gen = integers::<usize>()
             .with_min(0)
             .with_max(self.elements.len() - 1);
-        let idx = idx_gen.do_generate();
+        let idx = idx_gen.do_draw(data);
         self.elements[idx].clone()
     }
 
@@ -173,19 +171,19 @@ pub struct OneOfGenerator<'a, T> {
 }
 
 impl<'a, T> Generate<T> for OneOfGenerator<'a, T> {
-    fn do_generate(&self) -> T {
+    fn do_draw(&self, data: &ConjectureData) -> T {
         crate::assume(!self.generators.is_empty());
 
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Generate index and delegate
-            group(labels::ONE_OF, || {
+            data.span_group(labels::ONE_OF, || {
                 let idx = integers::<usize>()
                     .with_min(0)
                     .with_max(self.generators.len() - 1)
-                    .do_generate();
-                self.generators[idx].do_generate()
+                    .do_draw(data);
+                self.generators[idx].do_draw(data)
             })
         }
     }
@@ -273,15 +271,15 @@ impl<T, G> Generate<Option<T>> for OptionalGenerator<G, T>
 where
     G: Generate<T>,
 {
-    fn do_generate(&self) -> Option<T> {
+    fn do_draw(&self, data: &ConjectureData) -> Option<T> {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Compositional fallback
-            group(labels::OPTIONAL, || {
-                let is_some: bool = generate_from_schema(&cbor_map! {"type" => "boolean"});
+            data.span_group(labels::OPTIONAL, || {
+                let is_some: bool = data.generate_from_schema(&cbor_map! {"type" => "boolean"});
                 if is_some {
-                    Some(self.inner.do_generate())
+                    Some(self.inner.do_draw(data))
                 } else {
                     None
                 }

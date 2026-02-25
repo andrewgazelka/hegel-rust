@@ -1,4 +1,4 @@
-use super::{group, integers, labels, BasicGenerator, Collection, Generate};
+use super::{integers, labels, BasicGenerator, Collection, ConjectureData, Generate};
 use crate::cbor_helpers::{cbor_map, map_insert};
 use ciborium::Value;
 use std::collections::{HashMap, HashSet};
@@ -47,17 +47,17 @@ impl<T, G> Generate<Vec<T>> for VecGenerator<G, T>
 where
     G: Generate<T>,
 {
-    fn do_generate(&self) -> Vec<T> {
+    fn do_draw(&self, data: &ConjectureData) -> Vec<T> {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Compositional fallback: use server-managed collection sizing
-            group(labels::LIST, || {
+            data.span_group(labels::LIST, || {
                 let mut collection =
                     Collection::new("composite_list", self.min_size, self.max_size);
                 let mut result = Vec::new();
-                while collection.more() {
-                    result.push(self.elements.do_generate());
+                while collection.more(data) {
+                    result.push(self.elements.do_draw(data));
                 }
                 result
             })
@@ -122,22 +122,24 @@ where
     G: Generate<T>,
     T: Eq + Hash,
 {
-    fn do_generate(&self) -> HashSet<T> {
+    fn do_draw(&self, data: &ConjectureData) -> HashSet<T> {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Compositional fallback
-            group(labels::SET, || {
+            data.span_group(labels::SET, || {
                 let max = self.max_size.unwrap_or(100);
                 let target_len = integers::<usize>()
                     .with_min(self.min_size)
                     .with_max(max)
-                    .do_generate();
+                    .do_draw(data);
 
                 let mut set = HashSet::new();
                 let mut attempts = 0;
                 while set.len() < target_len && attempts < target_len * 10 {
-                    set.insert(group(labels::SET_ELEMENT, || self.elements.do_generate()));
+                    set.insert(
+                        data.span_group(labels::SET_ELEMENT, || self.elements.do_draw(data)),
+                    );
                     attempts += 1;
                 }
                 set
@@ -201,25 +203,26 @@ where
     V: Generate<VT>,
     KT: Eq + std::hash::Hash,
 {
-    fn do_generate(&self) -> HashMap<KT, VT> {
+    fn do_draw(&self, data: &ConjectureData) -> HashMap<KT, VT> {
         if let Some(basic) = self.as_basic() {
-            basic.do_generate()
+            basic.do_draw(data)
         } else {
             // Compositional fallback
-            group(labels::MAP, || {
+            data.span_group(labels::MAP, || {
                 let max = self.max_size.unwrap_or(100);
                 let len = integers::<usize>()
                     .with_min(self.min_size)
                     .with_max(max)
-                    .do_generate();
+                    .do_draw(data);
 
                 let mut map = HashMap::new();
                 let max_attempts = len * 10;
                 let mut attempts = 0;
                 while map.len() < len && attempts < max_attempts {
-                    group(labels::MAP_ENTRY, || {
-                        let key = self.keys.do_generate();
-                        map.entry(key).or_insert_with(|| self.values.do_generate());
+                    data.span_group(labels::MAP_ENTRY, || {
+                        let key = self.keys.do_draw(data);
+                        map.entry(key)
+                            .or_insert_with(|| self.values.do_draw(data));
                     });
                     attempts += 1;
                 }

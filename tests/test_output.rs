@@ -23,12 +23,12 @@ fn test_failing_test_output() {
     // For example:
     //   thread 'main' (1) panicked at src/main.rs:7:9:
     //   intentional failure: 0
-    //   Generated: 0
+    //   Draw 1: 0
     //   note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
     let expected = Regex::new(concat!(
         r"^thread '.*' \(\d+\) panicked at src/main\.rs:\d+:\d+:\n",
         r"intentional failure: -?\d+\n",
-        r"Generated: -?\d+",
+        r"Draw 1: -?\d+",
     ))
     .unwrap();
 
@@ -49,7 +49,7 @@ fn test_failing_test_output_with_backtrace() {
     // For example:
     //   thread 'main' (1) panicked at src/main.rs:7:9:
     //   intentional failure: 0
-    //   Generated: 0
+    //   Draw 1: 0
     //   stack backtrace:
     //      0: __rustc::rust_begin_unwind
     //      1: core::panicking::panic_fmt
@@ -64,7 +64,7 @@ fn test_failing_test_output_with_backtrace() {
         r"(?s)",
         r"^thread 'main' \(\d+\) panicked at src/main\.rs:\d+:\d+:\n",
         r"intentional failure: -?\d+\n",
-        r"Generated: -?\d+\n",
+        r"Draw 1: -?\d+\n",
         r"stack backtrace:\n",
         r"\s+0: .*\n", // frame 0: panic machinery
         r".*",
@@ -98,7 +98,7 @@ fn test_failing_test_output_with_full_backtrace() {
         r"(?s)",
         r"^thread 'main' \(\d+\) panicked at src/main\.rs:\d+:\d+:\n",
         r"intentional failure: -?\d+\n",
-        r"Generated: -?\d+\n",
+        r"Draw 1: -?\d+\n",
         r"stack backtrace:\n",
         r"\s+0: .*\n", // starts at frame 0
         r".*",

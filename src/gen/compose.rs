@@ -1,4 +1,4 @@
-use super::Generate;
+use super::{ConjectureData, Generate};
 use std::marker::PhantomData;
 
 /// A generator created from imperative code that draws from other generators.
@@ -33,7 +33,7 @@ impl<T, F> Generate<T> for ComposedGenerator<T, F>
 where
     F: Fn() -> T + Send + Sync,
 {
-    fn do_generate(&self) -> T {
+    fn do_draw(&self, _data: &ConjectureData) -> T {
         (self.f)()
     }
 }
@@ -82,13 +82,17 @@ macro_rules! compose {
     (|$draw:ident| { $($body:tt)* }) => {{
         const LABEL: u64 = $crate::gen::fnv1a_hash(stringify!($($body)*).as_bytes());
         $crate::gen::ComposedGenerator::new(move || {
-            let _guard = $crate::gen::CompositeGuard::new();
-            $crate::gen::group(LABEL, || {
+            let __data = $crate::gen::conjecture_data();
+            let __was_composite = __data.in_composite();
+            __data.set_in_composite(true);
+            let __result = __data.span_group(LABEL, || {
                 fn $draw<T>(gen: &impl $crate::gen::Generate<T>) -> T {
-                    $crate::gen::__compose_draw(gen)
+                    gen.do_draw($crate::gen::conjecture_data())
                 }
                 $($body)*
-            })
+            });
+            __data.set_in_composite(__was_composite);
+            __result
         })
     }};
 }

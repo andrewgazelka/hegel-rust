@@ -106,6 +106,21 @@ fn test_compose_list_with_index() {
 }
 
 #[test]
+fn test_compose_nested() {
+    // we expect hegel::draw() inside compose! after nested compose to panic
+    hegel::hegel(|| {
+        let result = std::panic::catch_unwind(|| {
+            hegel::draw(&hegel::compose!(|draw| {
+                draw(&hegel::compose!(|draw| {}));
+                // expected to panic
+                hegel::draw(&gen::integers::<i32>())
+            }));
+        });
+        assert!(result.is_err());
+    });
+}
+
+#[test]
 fn test_compose_string_building() {
     hegel::hegel(|| {
         let s = hegel::draw(&hegel::compose!(|draw| {

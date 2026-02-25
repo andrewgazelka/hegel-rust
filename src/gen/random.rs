@@ -28,7 +28,7 @@
 use rand::rngs::StdRng;
 use rand::{RngCore, SeedableRng};
 
-use super::{binary, integers, Generate};
+use super::{binary, conjecture_data, integers, ConjectureData, Generate};
 
 /// Generator for [`HegelRandom`] instances.
 ///
@@ -52,9 +52,9 @@ impl RandomsGenerator {
 }
 
 impl Generate<HegelRandom> for RandomsGenerator {
-    fn do_generate(&self) -> HegelRandom {
+    fn do_draw(&self, data: &ConjectureData) -> HegelRandom {
         if self.use_true_random {
-            let seed: u64 = integers().do_generate();
+            let seed: u64 = integers().do_draw(data);
             HegelRandom::True(Box::new(StdRng::seed_from_u64(seed)))
         } else {
             HegelRandom::Artificial
@@ -125,14 +125,20 @@ impl<'de> serde::Deserialize<'de> for HegelRandom {
 impl RngCore for HegelRandom {
     fn next_u32(&mut self) -> u32 {
         match self {
-            Self::Artificial => integers().do_generate(),
+            Self::Artificial => {
+                let data = conjecture_data();
+                integers().do_draw(data)
+            }
             Self::True(rng) => rng.next_u32(),
         }
     }
 
     fn next_u64(&mut self) -> u64 {
         match self {
-            Self::Artificial => integers().do_generate(),
+            Self::Artificial => {
+                let data = conjecture_data();
+                integers().do_draw(data)
+            }
             Self::True(rng) => rng.next_u64(),
         }
     }
@@ -140,10 +146,11 @@ impl RngCore for HegelRandom {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         match self {
             Self::Artificial => {
+                let data = conjecture_data();
                 let bytes: Vec<u8> = binary()
                     .with_min_size(dest.len())
                     .with_max_size(dest.len())
-                    .do_generate();
+                    .do_draw(data);
                 dest.copy_from_slice(&bytes);
             }
             Self::True(rng) => rng.fill_bytes(dest),

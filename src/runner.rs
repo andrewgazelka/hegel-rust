@@ -1,7 +1,4 @@
-use crate::gen::{
-    clear_connection, set_connection, set_is_last_run, take_generated_values, CONNECTION,
-    TEST_ABORTED,
-};
+use crate::gen::{ConjectureData, CONJECTURE_DATA};
 use crate::protocol::{Channel, Connection, HANDSHAKE_STRING, SUPPORTED_PROTOCOL_VERSIONS};
 use ciborium::Value;
 
@@ -519,11 +516,11 @@ fn run_test_case<F: FnMut()>(
     verbosity: Verbosity,
     got_interesting: &Arc<AtomicBool>,
 ) {
-    // Set thread-local state for this test case
+    // Create ConjectureData on the stack and set thread-local pointer.
     // Note: we pass the channel directly (not cloned) so generators and mark_complete
     // share the same message ID sequence.
-    set_is_last_run(is_final);
-    set_connection(Arc::clone(connection), test_channel, verbosity);
+    let data = ConjectureData::new(Arc::clone(connection), test_channel, verbosity, is_final);
+    CONJECTURE_DATA.with(|c| c.set(&data as *const ConjectureData));
 
     // Run test in catch_unwind
     let result = catch_unwind(AssertUnwindSafe(test_fn));
@@ -556,7 +553,7 @@ fn run_test_case<F: FnMut()>(
                     );
                     eprintln!("{}", msg);
 
-                    for value in take_generated_values() {
+                    for value in std::mem::take(&mut *data.output.borrow_mut()) {
                         eprintln!("{}", value);
                     }
 
@@ -582,29 +579,25 @@ fn run_test_case<F: FnMut()>(
 
     // Send mark_complete using the same channel that generators used.
     // Skip if test was aborted (StopTest) - server already closed the channel.
-    let was_aborted = TEST_ABORTED.with(|aborted| aborted.replace(false));
+    let was_aborted = data.test_aborted();
     if !was_aborted {
-        CONNECTION.with(|conn| {
-            if let Some(state) = conn.borrow_mut().as_mut() {
-                let origin_value = match &origin {
-                    Some(s) => Value::Text(s.clone()),
-                    None => Value::Null,
-                };
-                let mark_complete = cbor_map! {
-                    "command" => "mark_complete",
-                    "status" => status.as_str(),
-                    "origin" => origin_value
-                };
-                // Wait for server to acknowledge mark_complete before closing
-                let _ = state.channel.request_cbor(&mark_complete);
-                // Close the test case channel
-                let _ = state.channel.close();
-            }
-        });
+        let origin_value = match &origin {
+            Some(s) => Value::Text(s.clone()),
+            None => Value::Null,
+        };
+        let mark_complete = cbor_map! {
+            "command" => "mark_complete",
+            "status" => status.as_str(),
+            "origin" => origin_value
+        };
+        // Wait for server to acknowledge mark_complete before closing
+        let _ = data.channel().request_cbor(&mark_complete);
+        // Close the test case channel
+        let _ = data.channel().close();
     }
 
-    // Clear connection after mark_complete is sent (or skipped)
-    clear_connection();
+    // Clear thread-local pointer
+    CONJECTURE_DATA.with(|c| c.set(std::ptr::null()));
 }
 
 /// Extract a message from a panic payload.
