@@ -5,6 +5,7 @@ mod compose;
 mod default;
 mod fixed_dict;
 mod formats;
+mod given_param;
 mod macros;
 mod numeric;
 mod primitives;
@@ -30,6 +31,9 @@ pub use primitives::{booleans, just, unit};
 pub use random::{randoms, HegelRandom, RandomsGenerator};
 pub use strings::{from_regex, text};
 pub use tuples::{tuples, tuples3};
+
+#[doc(hidden)]
+pub use given_param::GivenParam;
 
 pub(crate) use collections::VecGenerator;
 pub(crate) use combinators::{Filtered, FlatMapped, Mapped, OptionalGenerator};
@@ -77,6 +81,9 @@ pub struct TestCaseData {
     draw_count: Cell<usize>,
     test_aborted: Cell<bool>,
     in_composite: Cell<bool>,
+    given_param_name: RefCell<Option<String>>,
+    pub(crate) given_params: RefCell<Vec<String>>,
+    pub(crate) test_name: Option<String>,
 }
 
 impl TestCaseData {
@@ -85,6 +92,7 @@ impl TestCaseData {
         channel: Channel,
         verbosity: Verbosity,
         is_last_run: bool,
+        test_name: Option<String>,
     ) -> Self {
         TestCaseData {
             connection,
@@ -96,6 +104,9 @@ impl TestCaseData {
             draw_count: Cell::new(0),
             test_aborted: Cell::new(false),
             in_composite: Cell::new(false),
+            given_param_name: RefCell::new(None),
+            given_params: RefCell::new(Vec::new()),
+            test_name,
         }
     }
 
@@ -119,6 +130,16 @@ impl TestCaseData {
     #[doc(hidden)]
     pub fn set_in_composite(&self, val: bool) {
         self.in_composite.set(val);
+    }
+
+    #[doc(hidden)]
+    pub fn set_given_param_name(&self, name: String) {
+        *self.given_param_name.borrow_mut() = Some(name);
+    }
+
+    #[doc(hidden)]
+    pub fn take_given_param_name(&self) -> Option<String> {
+        self.given_param_name.borrow_mut().take()
     }
 
     fn increment_span_depth(&self) {
@@ -605,6 +626,17 @@ pub trait Generate<T>: Send + Sync {
             inner: Arc::new(self),
         }
     }
+
+    /// Mark this generator as a `#[given]` parameter.
+    ///
+    /// Used by the `#[given]` macro to distinguish parameter draws from manual draws.
+    #[doc(hidden)]
+    fn __given_param(self, name: &'static str) -> GivenParam<Self, T>
+    where
+        Self: Sized,
+    {
+        GivenParam::new(self, name)
+    }
 }
 
 // Implement Generate for references to generators
@@ -642,11 +674,17 @@ pub fn draw<T: std::fmt::Debug>(gen: &impl Generate<T>) -> T {
     );
     let value = gen.do_draw(data);
     if data.is_last_run() {
-        let n = data.draw_count.get() + 1;
-        data.draw_count.set(n);
-        data.output
-            .borrow_mut()
-            .push(format!("Draw {}: {:?}", n, value));
+        if let Some(name) = data.take_given_param_name() {
+            data.given_params
+                .borrow_mut()
+                .push(format!("{name}: {value:?}"));
+        } else {
+            let n = data.draw_count.get() + 1;
+            data.draw_count.set(n);
+            data.output
+                .borrow_mut()
+                .push(format!("Draw {}: {:?}", n, value));
+        }
     }
     value
 }
