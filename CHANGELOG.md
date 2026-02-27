@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 - 2026-02-27
+
+Minor code style cleanup: elide unnecessary named lifetimes.
+
+
 ## 0.1.5 - 2026-02-26
 
 Rename the `gen` module to `generators`, avoiding a conflict with rust edition 2024, which made `gen` a reserved keyword.
