@@ -1,6 +1,3 @@
-# Hegel SDK for Rust
-# This justfile provides the standard build recipes.
-
 # Install dependencies and the hegel binary.
 # If HEGEL_BINARY is set, symlinks it into ~/.local/bin instead of installing from git.
 setup:
@@ -52,5 +49,4 @@ build-conformance:
 
 conformance: build-conformance
     uv run --with "hegel @ git+ssh://git@github.com/antithesishq/hegel.git" \
-        --with pytest --with pytest-subtests --with hypothesis \
-        pytest tests/conformance/test_conformance.py --durations=20 --durations-min=1.0
+        --with pytest --with hypothesis pytest tests/conformance/test_conformance.py
