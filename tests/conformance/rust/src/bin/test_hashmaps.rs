@@ -56,8 +56,8 @@ fn main() {
                 )
                 .with_min_size(params.min_size)
                 .with_max_size(params.max_size);
-                let map: HashMap<i32, i32> = hegel::draw(&hashmap_gen);
 
+                let map = hegel::draw(&hashmap_gen);
                 size = map.len();
                 if map.is_empty() {
                     min_key = None;
@@ -80,8 +80,8 @@ fn main() {
                 )
                 .with_min_size(params.min_size)
                 .with_max_size(params.max_size);
-                let map: HashMap<String, i32> = hegel::draw(&hashmap_gen);
 
+                let map = hegel::draw(&hashmap_gen);
                 size = map.len();
                 min_key = None;
                 max_key = None;

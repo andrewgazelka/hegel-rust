@@ -45,7 +45,7 @@ fn main() {
             vec_gen = vec_gen.with_max_size(max);
         }
 
-        let list: Vec<i32> = hegel::draw(&vec_gen);
+        let list = hegel::draw(&vec_gen);
 
         let size = list.len();
         let (min_element, max_element) = if list.is_empty() {
