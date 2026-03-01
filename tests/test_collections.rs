@@ -83,8 +83,6 @@ fn test_vec_with_mapped_elements() {
     });
 }
 
-// HashSet tests
-
 #[test]
 fn test_hashset_with_max_size() {
     hegel::hegel(|| {
@@ -154,8 +152,6 @@ fn test_vec_of_hashsets() {
     });
 }
 
-// HashMap tests
-
 #[test]
 fn test_hashmap_with_max_size() {
     hegel::hegel(|| {
@@ -208,5 +204,13 @@ fn test_hashmap_with_mapped_keys() {
             .with_max_size(10),
         );
         assert!(map.keys().all(|&k| k % 2 == 0));
+    });
+}
+
+#[test]
+fn test_binary_with_max_size() {
+    hegel::hegel(|| {
+        let data = hegel::draw(&generators::binary().with_max_size(50));
+        assert!(data.len() <= 50);
     });
 }
