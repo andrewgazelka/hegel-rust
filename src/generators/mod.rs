@@ -21,7 +21,7 @@ mod value;
 pub use basic::BasicGenerator;
 pub use collection::Collection;
 pub use arrays::arrays;
-pub use binary::binary;
+pub use strings::binary;
 pub use collections::{hashmaps, hashsets, vecs, HashMapGenerator};
 pub use combinators::{one_of, optional, sampled_from, BoxedGenerator};
 pub use compose::{fnv1a_hash, ComposedGenerator};
