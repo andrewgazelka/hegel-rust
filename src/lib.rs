@@ -217,7 +217,7 @@ pub(crate) mod runner;
 pub use control::{assume, currently_in_test_context, draw, note};
 pub use generators::Generate;
 
-// Re-export for macro use
+// re-export for macro use
 #[doc(hidden)]
 pub use ciborium;
 #[doc(hidden)]
