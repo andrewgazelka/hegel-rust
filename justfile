@@ -1,18 +1,6 @@
 # don't print bash comments as output during `just` invocation
 set ignore-comments := true
 
-# Install dependencies and the hegel binary.
-# If HEGEL_BINARY is set, symlinks it into ~/.local/bin instead of installing from git.
-setup:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -n "${HEGEL_BINARY:-}" ]; then
-        mkdir -p "$HOME/.local/bin"
-        ln -sf "$HEGEL_BINARY" "$HOME/.local/bin/hegel"
-    else
-        uv tool install "hegel @ git+ssh://git@github.com/antithesishq/hegel-core.git"
-    fi
-
 check: lint docs test test-all-features
 
 docs:
@@ -33,10 +21,10 @@ check-format:
     cargo fmt --check
 
 format-nix:
-    nix run nixpkgs#nixfmt -- flake.nix
+    nix run nixpkgs#nixfmt -- nix/flake.nix
 
 check-format-nix:
-    nix run nixpkgs#nixfmt -- --check flake.nix
+    nix run nixpkgs#nixfmt -- --check nix/flake.nix
 
 lint:
     cargo fmt --check
