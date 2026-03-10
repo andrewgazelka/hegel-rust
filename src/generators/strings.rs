@@ -216,7 +216,10 @@ impl DomainGenerator {
     }
 
     fn build_schema(&self) -> Value {
-        assert!(self.max_length >= 4 && self.max_length <= 255, "max_length must be between 4 and 255");
+        assert!(
+            self.max_length >= 4 && self.max_length <= 255,
+            "max_length must be between 4 and 255"
+        );
 
         cbor_map! {
             "type" => "domain",
