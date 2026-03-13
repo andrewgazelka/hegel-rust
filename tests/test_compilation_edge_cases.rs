@@ -5,7 +5,7 @@ use hegel::TestCase;
 fn boxed_generator_with_weird_lifetimes(tc: TestCase) {
     // This tests that we can created boxed generators boxed
     // generators whose lifetimes may not outlive the test.
-    let x = vec!["foo", "bar", "baz"];
+    let x = ["foo", "bar", "baz"];
 
     let ix = generators::integers().min_value(0).max_value(2);
 
