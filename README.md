@@ -1,7 +1,7 @@
 # Hegel for Rust
 
 > [!IMPORTANT]
-> If you've found this repository, congratulations! You're getting a sneak peak at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
+> If you've found this repository, congratulations! You're getting a sneak peek at an upcoming property-based testing library from [Antithesis](https://antithesis.com/), built on [Hypothesis](https://hypothesis.works/).
 >
 > We are still making rapid changes and progress.  Feel free to experiment, but don't expect stability from Hegel just yet!
 
