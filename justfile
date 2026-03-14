@@ -38,11 +38,11 @@ coverage:
 update-hegel-core-version:
     #!/usr/bin/env bash
     set -euo pipefail
-    tag=$(gh api repos/hegeldev/hegel-core/releases/latest --jq '.tag_name')
-    sed -i '' "s/^const HEGEL_SERVER_VERSION: &str = \".*\"/const HEGEL_SERVER_VERSION: \&str = \"${tag}\"/" src/runner.rs
-    sed -i '' "s/refs\/tags\/.*\";/refs\/tags\/${tag}\";/" nix/flake.nix
-    nix --extra-experimental-features "nix-command flakes" flake lock ./nix
-    echo "Updated HEGEL_SERVER_VERSION to ${tag}"
+    version=$(curl -s https://pypi.org/pypi/hegel-core/json | jq -r '.info.version')
+    sed -i '' "s/^const HEGEL_SERVER_VERSION: &str = \".*\"/const HEGEL_SERVER_VERSION: \&str = \"${version}\"/" src/runner.rs
+    sed -i '' "s/refs\/tags\/.*\";/refs\/tags\/v${version}\";/" nix/flake.nix
+    @which nix && (nix --extra-experimental-features "nix-command flakes" flake lock ./nix) || true
+    echo "Updated HEGEL_SERVER_VERSION to ${version}"
     # Clear cached install so the next test run picks up the new version
     rm -rf .hegel/venv
 
