@@ -1,15 +1,15 @@
 mod common;
 
+use common::project::TempRustProject;
 use hegel::generators::integers;
 use hegel::TestCase;
-use common::project::TempRustProject;
 
 const MISSING_TEST_CASE_PARAMETER: &str = "Functions marked with #[hegel::composite] must have a TestCase parameter as their first argument.";
-const MISSING_COMPOSITE_RETURN_TYPE: &str = "Functions marked with #[hegel::composite] must have an explicit return type.";
+const MISSING_COMPOSITE_RETURN_TYPE: &str =
+    "Functions marked with #[hegel::composite] must have an explicit return type.";
 
 #[test]
 fn test_successful_expansion() {
-
     let code = r#"
 use hegel::generators::integers;
 use hegel::TestCase;
@@ -28,7 +28,6 @@ fn main() {}
 
 #[test]
 fn test_missing_test_case_parameter() {
-
     let code = r#"
 use hegel::generators::integers;
 use hegel::TestCase;
@@ -46,12 +45,12 @@ fn main() {}
     assert!(
         output.stderr.contains(MISSING_TEST_CASE_PARAMETER),
         "Expected missing test case parameter error, got: {}",
-        output.stderr);
+        output.stderr
+    );
 }
 
 #[test]
 fn test_missing_return_type() {
-
     let code = r#"
 use hegel::generators::integers;
 use hegel::TestCase;
@@ -69,7 +68,8 @@ fn main() {}
     assert!(
         output.stderr.contains(MISSING_COMPOSITE_RETURN_TYPE),
         "Expected missing return type error, got: {}",
-        output.stderr);
+        output.stderr
+    );
 }
 
 #[hegel::composite]
