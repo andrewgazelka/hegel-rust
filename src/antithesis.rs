@@ -1,4 +1,5 @@
 use std::fs::OpenOptions;
+use std::fs::exists;
 use std::io::Write;
 
 pub struct TestLocation {
@@ -10,7 +11,7 @@ pub struct TestLocation {
 
 pub(crate) fn is_running_in_antithesis() -> bool {
     let output_dir = std::env::var("ANTITHESIS_OUTPUT_DIR");
-    output_dir.is_ok()
+    output_dir.is_ok() && exists(output_dir.unwrap()).is_ok()
 }
 
 pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {

@@ -11,22 +11,13 @@ fn test_antithesis_jsonl_written_when_env_set() {
     let code = r#"
 use hegel::generators;
 
-fn main() {
-    hegel::Hegel::new(|tc| {
-        let _ = tc.draw(generators::booleans());
-    })
-    .test_cases(1)
-    .test_location(hegel::TestLocation {
-        function: "my_test".to_string(),
-        file: "test.rs".to_string(),
-        class: "my_module".to_string(),
-        begin_line: 10,
-    })
-    .run();
+#[hegel::test(test_cases = 1)]
+fn my_test(tc: hegel::TestCase) {
+    let _ = tc.draw(generators::booleans());
 }
 "#;
 
-    let output = TempRustProject::new(code)
+    let output = TempRustProject::new_test(code)
         .env("ANTITHESIS_OUTPUT_DIR", &output_path)
         .run();
 
@@ -72,9 +63,9 @@ fn main() {
 
     let loc = &eval_assert["location"];
     assert_eq!(loc["function"], "my_test");
-    assert_eq!(loc["file"], "test.rs");
-    assert_eq!(loc["class"], "my_module");
-    assert_eq!(loc["begin_line"], 10);
+    assert_eq!(loc["file"], "tests/test.rs");
+    assert_eq!(loc["class"], "test");
+    assert_eq!(loc["begin_line"], 4);
     assert_eq!(loc["begin_column"], 0);
 }
 
@@ -85,22 +76,13 @@ fn test_antithesis_jsonl_not_written_when_env_unset() {
     let code = r#"
 use hegel::generators;
 
-fn main() {
-    hegel::Hegel::new(|tc| {
-        let _ = tc.draw(generators::booleans());
-    })
-    .test_cases(1)
-    .test_location(hegel::TestLocation {
-        function: "my_test".to_string(),
-        file: "test.rs".to_string(),
-        class: "my_module".to_string(),
-        begin_line: 10,
-    })
-    .run();
+#[hegel::test(test_cases = 1)]
+fn my_test(tc: hegel::TestCase) {
+    let _ = tc.draw(generators::booleans());
 }
 "#;
 
-    let output = TempRustProject::new(code).run();
+    let output = TempRustProject::new_test(code).run();
 
     assert!(
         output.status.success(),
