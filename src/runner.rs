@@ -573,9 +573,18 @@ where
             }
         }
 
+        // Check for server-side errors before processing results
+        if let Some(error_msg) = map_get(&result_data, "error").and_then(as_text) {
+            drop(test_channel);
+            drop(control);
+            let _ = connection.close();
+            drop(connection);
+            let _ = child.wait().expect("Failed to wait for hegel server");
+            panic!("Server error: {}", error_msg);
+        }
+
         // Check for health check failure before processing results
         if let Some(failure_msg) = map_get(&result_data, "health_check_failure").and_then(as_text) {
-            // Clean up so the server can exit gracefully
             drop(test_channel);
             drop(control);
             let _ = connection.close();

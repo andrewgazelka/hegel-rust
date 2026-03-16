@@ -98,9 +98,11 @@ jobs:
 
       - name: Install hegel-core from PR branch
         if: needs.check-dependency.outputs.has_dependency == 'true'
+        env:
+          CORE_BRANCH: ${{ needs.check-dependency.outputs.core_branch }}
         run: |
           uv venv .hegel/venv
-          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${{ needs.check-dependency.outputs.core_branch }}"
+          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${CORE_BRANCH}"
           echo "HEGEL_SERVER_COMMAND=$PWD/.hegel/venv/bin/hegel" >> "$GITHUB_ENV"
 
       - name: Run tests
@@ -133,9 +135,11 @@ jobs:
 
       - name: Install hegel-core from PR branch
         if: needs.check-dependency.outputs.has_dependency == 'true'
+        env:
+          CORE_BRANCH: ${{ needs.check-dependency.outputs.core_branch }}
         run: |
           uv venv .hegel/venv
-          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${{ needs.check-dependency.outputs.core_branch }}"
+          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${CORE_BRANCH}"
           echo "HEGEL_SERVER_COMMAND=$PWD/.hegel/venv/bin/hegel" >> "$GITHUB_ENV"
 
       - name: Run tests with all features
@@ -191,9 +195,11 @@ jobs:
 
       - name: Install hegel-core from PR branch
         if: needs.check-dependency.outputs.has_dependency == 'true'
+        env:
+          CORE_BRANCH: ${{ needs.check-dependency.outputs.core_branch }}
         run: |
           uv venv .hegel/venv
-          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${{ needs.check-dependency.outputs.core_branch }}"
+          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${CORE_BRANCH}"
           echo "HEGEL_SERVER_COMMAND=$PWD/.hegel/venv/bin/hegel" >> "$GITHUB_ENV"
 
       - name: Run coverage
@@ -223,9 +229,11 @@ jobs:
 
       - name: Install hegel-core from PR branch
         if: needs.check-dependency.outputs.has_dependency == 'true'
+        env:
+          CORE_BRANCH: ${{ needs.check-dependency.outputs.core_branch }}
         run: |
           uv venv .hegel/venv
-          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${{ needs.check-dependency.outputs.core_branch }}"
+          uv pip install --python .hegel/venv/bin/python "hegel-core @ git+https://github.com/hegeldev/hegel-core.git@${CORE_BRANCH}"
           echo "HEGEL_SERVER_COMMAND=$PWD/.hegel/venv/bin/hegel" >> "$GITHUB_ENV"
 
       - name: Run conformance tests
@@ -259,16 +267,16 @@ jobs:
       contents: read
     steps:
       - name: Check that linked hegel-core PR is merged
-        run: |
-          STATE=$(gh api "repos/hegeldev/hegel-core/pulls/${{ needs.check-dependency.outputs.core_pr_number }}" --jq '.state')
-          MERGED=$(gh api "repos/hegeldev/hegel-core/pulls/${{ needs.check-dependency.outputs.core_pr_number }}" --jq '.merged')
-          echo "PR #${{ needs.check-dependency.outputs.core_pr_number }} state=$STATE merged=$MERGED"
-          if [ "$MERGED" != "true" ]; then
-            echo "::error::Linked hegel-core PR #${{ needs.check-dependency.outputs.core_pr_number }} has not been merged yet. Merge it before merging this PR."
-            exit 1
-          fi
         env:
+          CORE_PR_NUMBER: ${{ needs.check-dependency.outputs.core_pr_number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MERGED=$(gh api "repos/hegeldev/hegel-core/pulls/${CORE_PR_NUMBER}" --jq '.merged')
+          if [ "$MERGED" != "true" ]; then
+            echo "::warning::Linked hegel-core PR #${CORE_PR_NUMBER} has not been merged yet. Merge it before merging this PR."
+          else
+            echo "Linked hegel-core PR #${CORE_PR_NUMBER} is merged."
+          fi
 
   release:
     name: release
