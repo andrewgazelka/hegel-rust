@@ -407,7 +407,7 @@ impl Generator<Value> for FixedDictGenerator<'_> {
 /// ```no_run
 /// use hegel::generators::{self, Generator};
 ///
-/// let gen = generators::fixed_dicts()
+/// let generator = generators::fixed_dicts()
 ///     .field("name", generators::text())
 ///     .field("age", generators::integers::<u32>())
 ///     .build();
