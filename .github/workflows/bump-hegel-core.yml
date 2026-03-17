@@ -24,8 +24,7 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          token: ${{ steps.app-token.outputs.token }}
-          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }} # zizmor: ignore[artipacked]
 
       - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
 
