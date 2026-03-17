@@ -585,8 +585,17 @@ where
 
         let test_failed = !passed || got_interesting.load(Ordering::SeqCst);
 
-        if let Some(ref loc) = self.test_location {
-            if is_running_in_antithesis() {
+        if is_running_in_antithesis() {
+            // if we're running inside of antithesis, but the user hasn't opted in
+            // to the antithesis feature, loudly inform them.
+            #[cfg(not(feature = "antithesis"))]
+            panic!(
+                "When Hegel is run inside of Antithesis, it requires the `antithesis` feature. \
+                You can add it with {{ features = [\"antithesis\"] }}."
+            );
+
+            #[cfg(feature = "antithesis")]
+            if let Some(ref loc) = self.test_location {
                 crate::antithesis::emit_assertion(loc, !test_failed);
             }
         }

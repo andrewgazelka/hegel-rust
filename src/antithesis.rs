@@ -1,5 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 
 pub struct TestLocation {
@@ -12,17 +10,20 @@ pub struct TestLocation {
 pub(crate) fn is_running_in_antithesis() -> bool {
     match std::env::var("ANTITHESIS_OUTPUT_DIR") {
         Ok(output_dir) => {
-            assert!(Path::new(&output_dir).exists());
+            assert!(
+                Path::new(&output_dir).exists(),
+                "Expected ANTITHESIS_OUTPUT_DIR={output_dir} to exist when running inside of Antithesis"
+            );
             true
         }
         Err(_) => false,
     }
 }
 
+#[cfg(feature = "antithesis")]
 pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
-    if !is_running_in_antithesis() {
-        panic!("emit_assertion must be called inside Antithesis");
-    }
+    use std::fs::OpenOptions;
+    use std::io::Write;
 
     let path = format!(
         "{}/sdk.jsonl",
@@ -68,17 +69,11 @@ pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
         }
     });
 
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
-        return;
-    };
-
-    let Ok(decl_line) = serde_json::to_string(&declaration) else {
-        return;
-    };
-    let Ok(eval_line) = serde_json::to_string(&evaluation) else {
-        return;
-    };
-
-    let _ = writeln!(file, "{}", decl_line);
-    let _ = writeln!(file, "{}", eval_line);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .expect(&format!("failed to open {}", path));
+    writeln!(file, "{}", serde_json::to_string(&declaration).unwrap()).unwrap();
+    writeln!(file, "{}", serde_json::to_string(&evaluation).unwrap()).unwrap();
 }
