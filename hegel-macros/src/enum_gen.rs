@@ -59,7 +59,7 @@ fn classify_variant(variant: &Variant) -> VariantKind<'_> {
 }
 
 /// Extract all field types from a variant.
-fn variant_field_types<'a>(variant: &'a Variant) -> Vec<&'a syn::Type> {
+fn variant_field_types(variant: &Variant) -> Vec<&syn::Type> {
     match classify_variant(variant) {
         VariantKind::Named { field_types, .. } | VariantKind::TupleMultiple { field_types } => {
             field_types
@@ -151,11 +151,11 @@ pub(crate) fn derive_enum_generate(input: &DeriveInput, data: &syn::DataEnum) ->
 
             quote! {
                 /// Set a custom generator for the #variant_name variant.
-                pub fn #with_method_name<G>(mut self, gen: G) -> Self
+                pub fn #with_method_name<G>(mut self, generator: G) -> Self
                 where
                     G: hegel::generators::Generator<#enum_name> + Send + Sync + 'a,
                 {
-                    self.#variant_name = gen.boxed();
+                    self.#variant_name = generator.boxed();
                     self
                 }
             }
@@ -167,7 +167,10 @@ pub(crate) fn derive_enum_generate(input: &DeriveInput, data: &syn::DataEnum) ->
 
     // Build sampled_from schema for variant selection
     let sampled_from_schema = {
-        let values: Vec<_> = all_variant_names.iter().map(|name| cbor_text(name)).collect();
+        let values: Vec<_> = all_variant_names
+            .iter()
+            .map(|name| cbor_text(name))
+            .collect();
         cbor_map(vec![(cbor_text("sampled_from"), cbor_array(values))])
     };
 
@@ -322,7 +325,10 @@ pub(crate) fn derive_enum_generate(input: &DeriveInput, data: &syn::DataEnum) ->
                 let basic_name = format_ident!("basic_{}", variant_name);
                 let tag_idx = num_unit_variants + i;
                 let tagged = tuple_schema(vec![
-                    cbor_map(vec![(cbor_text("const"), cbor_int(quote! { #tag_idx as i64 }))]),
+                    cbor_map(vec![(
+                        cbor_text("const"),
+                        cbor_int(quote! { #tag_idx as i64 }),
+                    )]),
                     quote! { #basic_name.schema().clone() },
                 ]);
                 quote! { one_of_schemas.push(#tagged); }
@@ -491,11 +497,11 @@ fn generate_variant_generator(
                     let with_method_name = format_ident!("with_{}", field_name);
                     quote! {
                         /// Set a custom generator for this field.
-                        pub fn #with_method_name<G>(mut self, gen: G) -> Self
+                        pub fn #with_method_name<G>(mut self, generator: G) -> Self
                         where
                             G: hegel::generators::Generator<#field_type> + Send + Sync + 'a,
                         {
-                            self.#field_name = gen.boxed();
+                            self.#field_name = generator.boxed();
                             self
                         }
                     }
@@ -552,7 +558,8 @@ fn generate_variant_generator(
                 .collect();
 
             let schema_ts = tuple_schema(schema_elements);
-            let parse_iter_ts = cbor_to_iter("iter", quote! { raw }, "Expected tuple for variant fields");
+            let parse_iter_ts =
+                cbor_to_iter("iter", quote! { raw }, "Expected tuple for variant fields");
 
             // parse closure field extractions (positional from tuple)
             let field_parse_in_closure: Vec<proc_macro2::TokenStream> = field_names
@@ -648,11 +655,11 @@ fn generate_variant_generator(
                     }
 
                     /// Set a custom generator for the value.
-                    pub fn with_value<G>(mut self, gen: G) -> Self
+                    pub fn with_value<G>(mut self, generator: G) -> Self
                     where
                         G: hegel::generators::Generator<#field_type> + Send + Sync + 'a,
                     {
-                        self.value = gen.boxed();
+                        self.value = generator.boxed();
                         self
                     }
                 }
@@ -703,11 +710,11 @@ fn generate_variant_generator(
                     let with_method_name = format_ident!("with{}", field_idx);
                     quote! {
                         /// Set a custom generator for this field.
-                        pub fn #with_method_name<G>(mut self, gen: G) -> Self
+                        pub fn #with_method_name<G>(mut self, generator: G) -> Self
                         where
                             G: hegel::generators::Generator<#field_type> + Send + Sync + 'a,
                         {
-                            self.#field_idx = gen.boxed();
+                            self.#field_idx = generator.boxed();
                             self
                         }
                     }
@@ -772,7 +779,8 @@ fn generate_variant_generator(
                 .collect();
 
             let schema_ts = tuple_schema(schema_elements);
-            let parse_iter_ts = cbor_to_iter("iter", quote! { raw }, "Expected tuple for variant fields");
+            let parse_iter_ts =
+                cbor_to_iter("iter", quote! { raw }, "Expected tuple for variant fields");
 
             quote! {
                 /// Generated generator for the #variant_name variant of #enum_name.
