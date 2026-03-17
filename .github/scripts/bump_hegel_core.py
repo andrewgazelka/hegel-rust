@@ -1,16 +1,54 @@
+import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+CORE_REPO = "hegeldev/hegel-core"
 
 
 def git(*args: str) -> None:
     subprocess.run(["git", *args], check=True, cwd=ROOT)
 
 
+def get_current_version() -> str:
+    text = (ROOT / "src" / "runner.rs").read_text()
+    m = re.search(r'^const HEGEL_SERVER_VERSION: &str = "([^"]+)";', text, re.MULTILINE)
+    assert m is not None
+    return m.group(1)
+
+
+def get_releases_in_range(from_version: str, to_version: str) -> list[dict[str, str]]:
+    """Fetch hegel-core releases between from_version (exclusive) and to_version (inclusive)."""
+    result = subprocess.run(
+        ["gh", "api", f"repos/{CORE_REPO}/releases", "--paginate", "--jq", ".[]"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=ROOT,
+    )
+    # --jq ".[]" with --paginate outputs one JSON object per line
+    releases = [json.loads(line) for line in result.stdout.strip().splitlines() if line.strip()]
+
+    from_parts = [int(x) for x in from_version.split(".")]
+    to_parts = [int(x) for x in to_version.split(".")]
+
+    in_range = []
+    for release in releases:
+        tag = release["tag_name"].lstrip("v")
+        parts = [int(x) for x in tag.split(".")]
+        if parts > from_parts and parts <= to_parts:
+            in_range.append({"version": tag, "body": release["body"].strip()})
+
+    # Sort oldest first
+    in_range.sort(key=lambda r: [int(x) for x in r["version"].split(".")])
+    return in_range
+
+
 def bump(version: str) -> None:
+    current_version = get_current_version()
+
     runner = ROOT / "src" / "runner.rs"
     text = runner.read_text()
     text = re.sub(
@@ -38,11 +76,29 @@ def bump(version: str) -> None:
         cwd=ROOT,
     )
 
+    releases = get_releases_in_range(current_version, version)
+    release_url = f"https://github.com/{CORE_REPO}/releases/tag/v{version}"
+
+    changelog_sections = []
+    for r in releases:
+        url = f"https://github.com/{CORE_REPO}/releases/tag/v{r['version']}"
+        quoted = "\n".join(f"> {line}" if line else ">" for line in r["body"].splitlines())
+        changelog_sections.append(f"{quoted}\n>\n> — [v{r['version']}]({url})")
+
+    changes_text = "\n\n".join(changelog_sections)
+    noun = "change" if len(releases) == 1 else "changes"
+
+    release_md = ROOT / "RELEASE.md"
+    release_md.write_text(
+        f"RELEASE_TYPE: patch\n\n"
+        f"Bump our pinned hegel-core to [{version}]({release_url}), "
+        f"incorporating the following {noun}:\n\n"
+        f"{changes_text}\n"
+    )
+
     app_id = os.environ["HEGEL_RELEASE_APP_ID"]
     git("config", "user.name", "hegel-release[bot]")
     git("config", "user.email", f"{app_id}+hegel-release[bot]@users.noreply.github.com")
-    release_md = ROOT / "RELEASE.md"
-    release_md.write_text(f"RELEASE_TYPE: patch\n\nBump our pinned hegel-core to {version}.\n")
 
     git("checkout", "-b", "ci/bump-hegel-core")
     git("add", "src/runner.rs", "nix/flake.nix", "nix/flake.lock", "RELEASE.md")
