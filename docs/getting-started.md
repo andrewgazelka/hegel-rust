@@ -46,7 +46,7 @@ fn test_integers_always_below_50(tc: TestCase) {
 
 This test asserts that any integer is less than 50, which is obviously incorrect. Hegel will find a test case that makes this assertion fail, and then shrink it to find the smallest counterexample — in this case, `n = 50`.
 
-To fix this test, we'll constrain the integers we generate with the `min_value` and `max_value` functions:
+To fix this test, you can constrain the integers you generate with the `min_value` and `max_value` functions:
 
 ```diff
  #[hegel::test]
@@ -61,15 +61,27 @@ To fix this test, we'll constrain the integers we generate with the `min_value` 
 
 Run the test again. It should now pass.
 
-## Using generators
+## Use generators
 
-Hegel provides some generators that you can use out of the box, such as `integers`, `floats`, and `strings`.
+Hegel provides a rich library of generators that you can use out of the box. There are primitive generators, such as `integers`, `floats`, and `strings`, and combinators that allow you to make generators out of other generators, such as `vecs` and `tuples`. 
 
-<!-- TODO: think about combinators some more -->
+For example, here's how you might generate a list of integers:
 
-You can also define custom generators with the `compose` macro.
+```rust
+fn test_append_increases_length(tc: TestCase) {
+    let vector = vecs(integers::<i32>());
+    let initial_length = vector.len();
+    vector.push(tc.draw(integers::<i32>()));
+    assert!(vector.len() > initial_length);
+}
+```
+<!-- TODO: more words -->
 
-For example, say we have a `Person` struct that we want to generate:
+
+
+You can also define custom generators with the `compose` macro. 
+
+For example, say you have a `Person` struct that we want to generate:
 
 ```rust
 struct Person {
@@ -90,7 +102,7 @@ fn generate_person() {
 }
 ```
 
-To make more complex custom generators, you can make calls to `draw` in sequence that use the results of previous `draw`s. For example, say that you extend the `Person` struct to include a `driving_license` boolean field:
+To customize a generator further, you can make calls to `draw` in sequence that use the results of previous `draw`s. For example, say that you extend the `Person` struct to include a `driving_license` boolean field:
 
 ```diff
  struct Person {
@@ -117,9 +129,9 @@ You can then draw values for `driving_license` that depend on the `age` field:
  }
 ```
 
-## Automatically building generators for types
+## Automatically build generators for types
 
-If you don't need custom logic in your generators, as in the first `Person` example above, you can use the `derive` attribute to create a generator automatically:
+If you want a generator with no custom logic, as in the first `Person` example above, you can use the `derive` attribute to create a generator automatically:
 
 ```rust
 #[derive(Generator, Debug)]
@@ -140,7 +152,7 @@ use hegel::generators::{self, Generator};
 fn test_with_notes(tc: hegel::TestCase) {
     let x = tc.draw(generators::integers::<i64>());
     let y = tc.draw(generators::integers::<i64>());
-    tc.note(&format!("trying x={x}, y={y}"));
+    tc.note(&format!("x + y = {x + y}, y + x = {y + x}"));
     assert_eq!(x + y, y + x); // commutativity -- always true
 }
 ```
@@ -175,3 +187,9 @@ fn test_integers_many(tc: hegel::TestCase) {
 - Combine `#[derive(Generator)]` with `.with_<field>()` to generate realistic domain objects.
 
 <!-- TODO: ending -->
+
+<!-- ## Further reading -->
+
+<!-- To learn more about Hegel for Rust, see ... (what?) -->
+
+<!-- https://crates.io/crates/hegeltest - link to docs page -->
