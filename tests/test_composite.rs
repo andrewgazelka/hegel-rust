@@ -51,6 +51,26 @@ fn main() {}
 }
 
 #[test]
+fn test_nullary() {
+    let code = r#"
+#[hegel::composite]
+fn composite_integer_generator() -> i32 {
+    0
+}
+
+fn main() {}
+"#;
+
+    let output = TempRustProject::new(code).run();
+    assert!(!output.status.success());
+    assert!(
+        output.stderr.contains(MISSING_TEST_CASE_PARAMETER),
+        "Expected missing return type error, got: {}",
+        output.stderr
+    );
+}
+
+#[test]
 fn test_missing_test_case_parameter() {
     let code = r#"
 #[hegel::composite]
