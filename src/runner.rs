@@ -1,3 +1,4 @@
+use crate::antithesis::{TestLocation, is_running_in_antithesis};
 use crate::control::{currently_in_test_context, set_in_test_context};
 use crate::protocol::{Channel, Connection, HANDSHAKE_STRING};
 use crate::test_case::{ASSUME_FAIL_STRING, TestCase};
@@ -362,6 +363,7 @@ pub struct Hegel<F> {
     test_cases: u64,
     verbosity: Verbosity,
     seed: Option<u64>,
+    test_location: Option<TestLocation>,
     suppress_health_check: Vec<HealthCheck>,
 }
 
@@ -375,6 +377,7 @@ where
             test_cases: 100,
             verbosity: Verbosity::Normal,
             seed: None,
+            test_location: None,
             suppress_health_check: Vec::new(),
         }
     }
@@ -394,6 +397,11 @@ where
         self
     }
 
+    #[doc(hidden)]
+    pub fn test_location(mut self, location: TestLocation) -> Self {
+        self.test_location = Some(location);
+        self
+    }
     /// Suppress one or more health checks so they do not cause test failure.
     ///
     /// Health checks detect common issues like excessive filtering or slow
@@ -690,7 +698,24 @@ where
 
         let _ = child.wait().expect("Failed to wait for hegel server");
 
-        if !passed || got_interesting.load(Ordering::SeqCst) {
+        let test_failed = !passed || got_interesting.load(Ordering::SeqCst);
+
+        if is_running_in_antithesis() {
+            // if we're running inside of antithesis, but the user hasn't opted in
+            // to the antithesis feature, loudly inform them.
+            #[cfg(not(feature = "antithesis"))]
+            panic!(
+                "When Hegel is run inside of Antithesis, it requires the `antithesis` feature. \
+                You can add it with {{ features = [\"antithesis\"] }}."
+            );
+
+            #[cfg(feature = "antithesis")]
+            if let Some(ref loc) = self.test_location {
+                crate::antithesis::emit_assertion(loc, !test_failed);
+            }
+        }
+
+        if test_failed {
             panic!("Property test failed");
         }
     }
