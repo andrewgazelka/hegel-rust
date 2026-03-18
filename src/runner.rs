@@ -400,7 +400,8 @@ where
     #[doc(hidden)]
     pub fn test_location(mut self, location: TestLocation) -> Self {
         self.test_location = Some(location);
-    
+        self
+    }
     /// Suppress one or more health checks so they do not cause test failure.
     ///
     /// Health checks detect common issues like excessive filtering or slow
