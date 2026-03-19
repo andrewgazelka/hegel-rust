@@ -706,10 +706,7 @@ where
             );
 
             if connection.server_has_exited() {
-                panic!(
-                    "The hegel server process exited unexpectedly. \
-                     See .hegel/server.log for diagnostic information."
-                );
+                panic!("{}", SERVER_CRASHED_MESSAGE);
             }
         }
 
