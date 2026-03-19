@@ -179,7 +179,8 @@ fn test_integers_many(tc: hegel::TestCase) {
 
 ## Next steps
 
-- Run `just docs` to build and browse the full API documentation locally.
+You've now had a quick tour of the core features of Hegel. Here are some options for what to try next:
+
+- Run `just docs` to build and browse the full API docs locally.
 - Look at `tests/` for more usage patterns.
-<!-- - Combine `#[derive(Generator)]` with `.with_<field>()` to generate realistic domain objects. -->
 - See our [API docs](https://crates.io/crates/hegeltest).
