@@ -123,6 +123,8 @@ pub(crate) fn derive_struct_generator(input: &DeriveInput, data: &syn::DataStruc
 
     let expanded = quote! {
         const _: () = {
+            use hegel::generators::Generator as _;
+
             pub struct #generator_name<'a> {
                 #(#generator_fields,)*
             }
@@ -152,7 +154,6 @@ pub(crate) fn derive_struct_generator(input: &DeriveInput, data: &syn::DataStruc
 
             impl<'a> hegel::generators::Generator<#name> for #generator_name<'a> {
                 fn do_draw(&self, __data: &hegel::TestCase) -> #name {
-                    use hegel::generators::Generator;
                     if let Some(basic) = self.as_basic() {
                         basic.parse_raw(hegel::generate_raw(__data, basic.schema()))
                     } else {
@@ -166,8 +167,6 @@ pub(crate) fn derive_struct_generator(input: &DeriveInput, data: &syn::DataStruc
                 }
 
                 fn as_basic(&self) -> Option<hegel::generators::BasicGenerator<'_, #name>> {
-                    use hegel::generators::Generator;
-
                     #(#basic_bindings)*
 
                     let schema = #schema_ts;
