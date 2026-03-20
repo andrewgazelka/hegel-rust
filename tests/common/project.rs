@@ -8,7 +8,7 @@ use tempfile::TempDir;
 
 // use a unique package name in our Cargo.toml to avoid cargo using the cached build from
 // a different test
-static PACKET_NAME_ID: AtomicU64 = AtomicU64::new(0);
+static PACKAGE_NAME_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct TempRustProject {
     _temp_dir: TempDir,
@@ -32,7 +32,7 @@ impl TempRustProject {
         let project_path = temp_dir.path().to_path_buf();
 
         let hegel_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let id = PACKET_NAME_ID.fetch_add(1, Ordering::Relaxed);
+        let id = PACKAGE_NAME_ID.fetch_add(1, Ordering::Relaxed);
         let crate_name = format!("temp_hegel_test_{}", id);
         let cargo_toml = format!(
             r#"[package]
@@ -136,8 +136,7 @@ hegeltest = {{ path = "{path}"{features} }}
         if self.has_tests {
             cmd.args(["test", "--quiet"]);
         } else {
-            cmd.args(["run", "--quiet"])
-            ;
+            cmd.args(["run", "--quiet"]);
         }
 
         cmd.current_dir(&self.project_path)
