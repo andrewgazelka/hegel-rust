@@ -136,7 +136,7 @@ hegeltest = {{ path = "{path}"{features} }}
         let mut cmd = Command::new(env!("CARGO"));
         cmd.args(args)
             .current_dir(&self.project_path)
-            .env("CARGO_TARGET_DIR", &cached_target);
+            .env("CARGO_TARGET_DIR", cached_target);
 
         for key in &self.env_removes {
             cmd.env_remove(key);
