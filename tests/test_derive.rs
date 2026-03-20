@@ -6,8 +6,8 @@
 mod common;
 
 use common::utils::{assert_all_examples, check_can_generate_examples, find_any};
-use hegel::generators::{self, DefaultGenerator, Generator};
 use hegel::Generator as DeriveGenerator;
+use hegel::generators::{self, DefaultGenerator, Generator};
 
 // ============================================================================
 // Struct definitions
@@ -206,8 +206,7 @@ fn test_derive_struct_with_multiple_custom_fields() {
 
 #[test]
 fn test_derive_struct_with_constrained_field() {
-    let g = Person::default_generator()
-        .age(generators::integers().min_value(18_u32).max_value(65));
+    let g = Person::default_generator().age(generators::integers().min_value(18_u32).max_value(65));
     assert_all_examples(g, |p: &Person| p.age >= 18 && p.age <= 65);
 }
 
@@ -220,15 +219,13 @@ fn test_derive_struct_builder_only_overrides_specified_field() {
 
 #[test]
 fn test_derive_struct_with_mapped_field() {
-    let g = Point::default_generator()
-        .x(generators::integers::<i32>().map(|x| x.saturating_abs()));
+    let g = Point::default_generator().x(generators::integers::<i32>().map(|x| x.saturating_abs()));
     assert_all_examples(g, |p: &Point| p.x >= 0);
 }
 
 #[test]
 fn test_derive_struct_with_filtered_field() {
-    let g = Point::default_generator()
-        .x(generators::integers::<i32>().filter(|x| x % 2 == 0));
+    let g = Point::default_generator().x(generators::integers::<i32>().filter(|x| x % 2 == 0));
     assert_all_examples(g, |p: &Point| p.x % 2 == 0);
 }
 
@@ -302,12 +299,14 @@ fn test_derive_tuple_variants_enum() {
 
 #[test]
 fn test_derive_tuple_variant_generates_both() {
-    find_any(generators::default::<TupleVariants>(), |t: &TupleVariants| {
-        matches!(t, TupleVariants::Pair(..))
-    });
-    find_any(generators::default::<TupleVariants>(), |t: &TupleVariants| {
-        matches!(t, TupleVariants::Triple(..))
-    });
+    find_any(
+        generators::default::<TupleVariants>(),
+        |t: &TupleVariants| matches!(t, TupleVariants::Pair(..)),
+    );
+    find_any(
+        generators::default::<TupleVariants>(),
+        |t: &TupleVariants| matches!(t, TupleVariants::Triple(..)),
+    );
 }
 
 #[test]
@@ -502,9 +501,7 @@ fn test_derive_nested_struct_with_custom_inner() {
             .x(generators::just(0))
             .y(generators::just(0)),
     );
-    assert_all_examples(g, |w: &WithNested| {
-        w.point.x == 0 && w.point.y == 0
-    });
+    assert_all_examples(g, |w: &WithNested| w.point.x == 0 && w.point.y == 0);
 }
 
 // ============================================================================
