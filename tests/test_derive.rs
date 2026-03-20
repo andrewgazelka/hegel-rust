@@ -6,8 +6,8 @@
 mod common;
 
 use common::utils::{assert_all_examples, check_can_generate_examples, find_any};
-use hegel::Generator as DeriveGenerator;
-use hegel::generators::{self, DefaultGenerator};
+use hegel::DefaultGenerator as DeriveGenerator;
+use hegel::generators::{self, DefaultGenerator, Generator};
 
 // ============================================================================
 // Struct definitions

@@ -150,14 +150,14 @@
 //!
 //! # Deriving Generators
 //!
-//! Use `#[derive(Generator)]` to automatically create generators for structs and enums,
+//! Use `#[derive(DefaultGenerator)]` to automatically create generators for structs and enums,
 //! then use [`generators::default`] to get a generator:
 //!
 //! ```no_run
-//! use hegel::Generator;
+//! use hegel::DefaultGenerator;
 //! use hegel::generators;
 //!
-//! #[derive(Generator, Debug)]
+//! #[derive(DefaultGenerator, Debug)]
 //! struct Person {
 //!     name: String,
 //!     age: u32,
@@ -232,7 +232,7 @@ pub use test_case::{__IsTestCase, __assert_is_test_case, generate_from_schema, g
 // re-export public api
 #[doc(hidden)]
 pub use antithesis::TestLocation;
-pub use hegel_macros::Generator;
+pub use hegel_macros::DefaultGenerator;
 pub use hegel_macros::composite;
 pub use hegel_macros::test;
 pub use runner::{HealthCheck, Hegel, Settings, Verbosity, hegel};

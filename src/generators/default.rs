@@ -17,15 +17,15 @@ pub trait DefaultGenerator: Sized {
 /// Create a generator for a type using its default generator.
 ///
 /// This is the primary way to get a generator for types that implement
-/// [`DefaultGenerator`], including types with `#[derive(Generator)]`.
+/// [`DefaultGenerator`], including types with `#[derive(DefaultGenerator)]`.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use hegel::generators::{self, DefaultGenerator};
-/// use hegel::Generator;
+/// use hegel::DefaultGenerator;
 ///
-/// #[derive(Generator, Debug)]
+/// #[derive(DefaultGenerator, Debug)]
 /// struct Person {
 ///     name: String,
 ///     age: u32,

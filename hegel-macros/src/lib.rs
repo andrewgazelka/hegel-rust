@@ -22,10 +22,10 @@ use syn::{Data, DeriveInput, ItemFn, parse_macro_input};
 /// # Struct Example
 ///
 /// ```ignore
-/// use hegel::Generator;
-/// use hegel::generators::{self, DefaultGenerator, Generator as _};
+/// use hegel::DefaultGenerator;
+/// use hegel::generators::{self, DefaultGenerator as _, Generator as _};
 ///
-/// #[derive(Generator)]
+/// #[derive(DefaultGenerator)]
 /// struct Person {
 ///     name: String,
 ///     age: u32,
@@ -42,10 +42,10 @@ use syn::{Data, DeriveInput, ItemFn, parse_macro_input};
 /// # Enum Example
 ///
 /// ```ignore
-/// use hegel::Generator;
-/// use hegel::generators::{self, DefaultGenerator, Generator as _};
+/// use hegel::DefaultGenerator;
+/// use hegel::generators::{self, DefaultGenerator as _, Generator as _};
 ///
-/// #[derive(Generator)]
+/// #[derive(DefaultGenerator)]
 /// enum Status {
 ///     Pending,
 ///     Active { since: String },
@@ -63,7 +63,7 @@ use syn::{Data, DeriveInput, ItemFn, parse_macro_input};
 ///     let status: Status = tc.draw(generator);
 /// }
 /// ```
-#[proc_macro_derive(Generator)]
+#[proc_macro_derive(DefaultGenerator)]
 pub fn derive_generator(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
