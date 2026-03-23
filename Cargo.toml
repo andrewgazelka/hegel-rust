@@ -11,8 +11,6 @@ exclude = [
   "/.claude",
   "/.github",
   "/nix",
-  "/tests/conformance",
-  "/justfile",
   "/RELEASE-sample.md",
 ]
 license = "MIT"
