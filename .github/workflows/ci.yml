@@ -39,6 +39,10 @@ jobs:
         run: pipx install zizmor==1.23.1
       - name: Run zizmor
         run: zizmor --format plain .github/
+      - name: Check `cargo package`
+        # creates a .crate for distribution and verifies it can build in isolation
+        # see https://doc.rust-lang.org/cargo/commands/cargo-package.html
+        run: cargo package
 
   test:
     name: test (${{ matrix.rust }})
