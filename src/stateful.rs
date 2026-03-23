@@ -21,6 +21,20 @@ impl<M> Rule<M> {
     }
 }
 
+pub struct Invariant<M: ?Sized> {
+    pub name: String,
+    pub check: fn(&M, TestCase),
+}
+
+impl<M> Invariant<M> {
+    pub fn new(name: &str, check: fn(&M, TestCase)) -> Self {
+        Invariant {
+            name: name.to_string(),
+            check,
+        }
+    }
+}
+
 pub struct Variables<T> {
     pool_id: i128,
     tc: TestCase,
@@ -95,7 +109,7 @@ pub fn variables<T>(tc: &TestCase) -> Variables<T> {
 
 pub trait StateMachine {
     fn rules(&self) -> Vec<Rule<Self>>;
-    fn invariants(&self) -> Vec<fn(&Self, &TestCase)>;
+    fn invariants(&self) -> Vec<Invariant<Self>>;
 }
 
 // TODO: factor out (shared with runner.rs)
@@ -112,7 +126,8 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
 fn check_invariants(m: &impl StateMachine, tc: &TestCase) {
     let invariants = m.invariants();
     for invariant in invariants {
-        invariant(m, tc);
+        let inv_tc = tc.child(2);
+        (invariant.check)(m, inv_tc);
     }
 }
 
