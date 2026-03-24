@@ -77,25 +77,25 @@ pub fn derive_generator(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Mark a test function as a Hegel property-based test.
+/// The main entrypoint into Hegel.
 ///
-/// Wraps the function body in `Hegel::new(|tc: TestCase| { ... }).run()`. The function
-/// must take exactly one parameter of type `hegel::TestCase`, and use `tc.draw()` to
-/// generate values. The `#[test]` attribute is added automatically and must not be
-/// present on the function.
+/// The function must take exactly one parameter of type `hegel::TestCase`. The test case can be
+/// used to generate values via `tc.draw()`.
 ///
-/// Optionally accepts settings as `key = value` pairs:
+/// The `#[test]` attribute is added automatically and must not be present on the function.
 ///
 /// ```ignore
 /// #[hegel::test]
-/// fn my_test(tc: hegel::TestCase) {
-///     let x: i32 = tc.draw(generators::integers());
+/// fn my_test(tc: TestCase) {
+///     let x: i32 = tc.draw(integers());
 ///     assert!(x + 0 == x);
 /// }
 ///
+/// You can set settings with on `hegel::test`:
+///
 /// #[hegel::test(test_cases = 500)]
-/// fn my_configured_test(tc: hegel::TestCase) {
-///     let x: i32 = tc.draw(generators::integers());
+/// fn test_runs_many_more_times(tc: TestCase) {
+///     let x: i32 = tc.draw(integers());
 ///     assert!(x + 0 == x);
 /// }
 /// ```

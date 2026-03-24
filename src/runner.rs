@@ -333,22 +333,8 @@ impl Verbosity {
     }
 }
 
-/// Run property-based tests using Hegel with default options.
-///
-/// This is a convenience function for simple cases. For configuration options,
-/// use [`Hegel::new`] with the builder pattern.
-///
-/// # Example
-///
-/// ```no_run
-/// use hegel::generators;
-///
-/// #[hegel::test]
-/// fn test_identity(tc: hegel::TestCase) {
-///     let n = tc.draw(generators::integers::<i32>());
-///     assert!(n + 0 == n); // Identity property
-/// }
-/// ```
+// internal use only
+#[doc(hidden)]
 pub fn hegel<F>(test_fn: F)
 where
     F: FnMut(TestCase),
@@ -356,24 +342,6 @@ where
     Hegel::new(test_fn).run();
 }
 
-/// Builder for running property-based tests with Hegel.
-///
-/// Use [`Hegel::new`] to create a builder, then call [`run`](Hegel::run) to
-/// execute the tests. Use [`settings`](Hegel::settings) to customize test
-/// behavior via a [`Settings`] instance.
-///
-/// # Example
-///
-/// ```no_run
-/// use hegel::{Settings, Verbosity};
-/// use hegel::generators;
-///
-/// #[hegel::test(settings = Settings::new().test_cases(500).verbosity(Verbosity::Verbose))]
-/// fn test_with_options(tc: hegel::TestCase) {
-///     let n = tc.draw(generators::integers::<i32>());
-///     assert!(n + 0 == n);
-/// }
-/// ```
 fn is_in_ci() -> bool {
     const CI_VARS: &[(&str, Option<&str>)] = &[
         ("CI", None),
