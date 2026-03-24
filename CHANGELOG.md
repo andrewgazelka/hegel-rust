@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 - 2026-03-24
+
+This release makes a bunch of last-minute cleanups to places where our API obviously needed fixing that emerged during docs review.
+
+* Removes `none()` which is a weird Python anachronism
+* Makes various places where we had a no-arg method to take a boolean to match `unique(bool)`
+* Replaces our various tuplesN functions with a tuples! macro
+
 ## 0.1.18 - 2026-03-24
 
 More updates and fixes to documentation.
