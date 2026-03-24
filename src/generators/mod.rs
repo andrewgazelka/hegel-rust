@@ -29,6 +29,8 @@ pub use crate::test_case::{
 };
 
 // public api
+#[doc(inline)]
+pub use crate::tuples;
 pub use collections::{
     ArrayGenerator, FixedDictBuilder, FixedDictGenerator, HashMapGenerator, HashSetGenerator,
     VecGenerator, arrays, fixed_dicts, hashmaps, hashsets, vecs,
@@ -55,8 +57,6 @@ pub use tuples::{
     tuples2, tuples3, tuples4, tuples5, tuples6, tuples7, tuples8, tuples9, tuples10, tuples11,
     tuples12,
 };
-#[doc(inline)]
-pub use crate::tuples;
 
 #[cfg(feature = "rand")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rand")))]
