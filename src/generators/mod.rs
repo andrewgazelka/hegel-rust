@@ -29,6 +29,8 @@ pub use crate::test_case::{
 };
 
 // public api
+#[doc(inline)]
+pub use crate::tuples;
 pub use collections::{
     ArrayGenerator, FixedDictBuilder, FixedDictGenerator, HashMapGenerator, HashSetGenerator,
     VecGenerator, arrays, fixed_dicts, hashmaps, hashsets, vecs,
@@ -43,13 +45,14 @@ pub use default::{DefaultGenerator, default};
 #[doc(hidden)]
 pub use generators::BasicGenerator;
 pub use generators::{BoxedGenerator, Filtered, FlatMapped, Generator, Mapped};
-pub use misc::{BoolGenerator, JustGenerator, NoneGenerator, booleans, just, none, unit};
+pub use misc::{BoolGenerator, JustGenerator, booleans, just, unit};
 pub use numeric::{Float, FloatGenerator, Integer, IntegerGenerator, floats, integers};
 pub use strings::{
     BinaryGenerator, DateGenerator, DateTimeGenerator, DomainGenerator, EmailGenerator,
     IpAddressGenerator, RegexGenerator, TextGenerator, TimeGenerator, UrlGenerator, binary, dates,
     datetimes, domains, emails, from_regex, ip_addresses, text, times, urls,
 };
+#[doc(hidden)]
 pub use tuples::{
     tuples2, tuples3, tuples4, tuples5, tuples6, tuples7, tuples8, tuples9, tuples10, tuples11,
     tuples12,

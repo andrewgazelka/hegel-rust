@@ -31,31 +31,6 @@ pub fn just<T: Clone + Send + Sync>(value: T) -> JustGenerator<T> {
     JustGenerator { value }
 }
 
-/// Generator that always produces `None`. Created by [`none()`].
-pub struct NoneGenerator<T> {
-    _phantom: std::marker::PhantomData<fn() -> T>,
-}
-
-impl<T: Send + Sync> Generator<Option<T>> for NoneGenerator<T> {
-    fn do_draw(&self, _tc: &TestCase) -> Option<T> {
-        None
-    }
-
-    fn as_basic(&self) -> Option<BasicGenerator<'_, Option<T>>> {
-        Some(BasicGenerator::new(
-            cbor_map! {"const" => Value::Null},
-            |_| None,
-        ))
-    }
-}
-
-/// Generate `Option::None` for any type `T`.
-pub fn none<T: Send + Sync>() -> NoneGenerator<T> {
-    NoneGenerator {
-        _phantom: std::marker::PhantomData,
-    }
-}
-
 /// Generator for boolean values. Created by [`booleans()`].
 pub struct BoolGenerator;
 
