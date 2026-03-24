@@ -36,9 +36,9 @@ pub use collections::{
 pub use combinators::{
     OneOfGenerator, OptionalGenerator, SampledFromGenerator, one_of, optional, sampled_from,
 };
+pub use compose::ComposedGenerator;
 #[doc(hidden)]
 pub use compose::fnv1a_hash;
-pub use compose::ComposedGenerator;
 pub use default::{DefaultGenerator, default};
 #[doc(hidden)]
 pub use generators::BasicGenerator;
