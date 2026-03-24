@@ -344,22 +344,8 @@ impl Verbosity {
     }
 }
 
-/// Run property-based tests using Hegel with default options.
-///
-/// This is a convenience function for simple cases. For configuration options,
-/// use [`Hegel::new`] with the builder pattern.
-///
-/// # Example
-///
-/// ```no_run
-/// use hegel::generators;
-///
-/// #[hegel::test]
-/// fn test_identity(tc: hegel::TestCase) {
-///     let n = tc.draw(generators::integers::<i32>());
-///     assert!(n + 0 == n); // Identity property
-/// }
-/// ```
+// internal use only
+#[doc(hidden)]
 pub fn hegel<F>(test_fn: F)
 where
     F: FnMut(TestCase),
@@ -492,10 +478,8 @@ impl Default for Settings {
     }
 }
 
-/// Builder for running property-based tests with Hegel.
-///
-/// Use [`Hegel::new`] to create a builder, then call [`run`](Hegel::run) to
-/// execute the tests.
+// internal use only
+#[doc(hidden)]
 pub struct Hegel<F> {
     test_fn: F,
     database_key: Option<String>,
