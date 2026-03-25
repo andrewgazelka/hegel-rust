@@ -354,7 +354,11 @@ fn test_find_dictionary() {
 fn test_can_find_list() {
     let x = minimal(
         generators::vecs(generators::integers::<i64>()),
-        |x: &Vec<i64>| x.iter().sum::<i64>() >= 10,
+        |x: &Vec<i64>| {
+            x.iter()
+                .try_fold(0i64, |acc, &v| acc.checked_add(v))
+                .is_some_and(|s| s >= 10)
+        },
     );
     assert_eq!(x.iter().sum::<i64>(), 10);
 }
