@@ -697,12 +697,12 @@ where
             }
         }
 
-        // Serialize access to the control channel so that concurrent run_test
-        // commands don't interleave their send/receive sequences.
-        let run_test_id;
+        // The control channel is behind a Mutex because Channel requires &mut self.
+        // This only serializes the brief run_test send/receive — actual test
+        // execution happens on per-test channels without holding this lock.
         {
             let mut control = session.control.lock().unwrap();
-            run_test_id = control
+            let run_test_id = control
                 .send_request(cbor_encode(&run_test_msg))
                 .expect("Failed to send run_test");
 
