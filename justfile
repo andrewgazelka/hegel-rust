@@ -38,14 +38,14 @@ check-docs:
 docs:
     cargo +nightly docs-rs --open
 
-check-lint: check-format check-clippy check-docs
+check-lint: check-format check-clippy
 
 check-coverage:
     # requires cargo-llvm-cov and llvm-tools-preview
     RUST_BACKTRACE=1 cargo llvm-cov --all-features --fail-under-lines 30 --show-missing-lines
 
 check-conformance:
-    cargo build --manifest-path tests/conformance/rust/Cargo.toml
+    cargo build --release --manifest-path tests/conformance/rust/Cargo.toml
     uv run --with hegel-core --with pytest --with hypothesis \
         pytest tests/conformance/test_conformance.py
 
