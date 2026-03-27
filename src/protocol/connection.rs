@@ -73,7 +73,16 @@ impl Connection {
 
     fn register_channel(self: &Arc<Self>, channel_id: u32) -> Channel {
         let (tx, rx) = mpsc::channel();
-        self.channel_senders.lock().unwrap().insert(channel_id, tx);
+        let mut senders = self.channel_senders.lock().unwrap();
+        senders.insert(channel_id, tx);
+        // If the server already exited, the background reader's clear() either
+        // already ran (so our insert is orphaned) or is blocked on this lock
+        // (and will clear it). Remove the sender now so recv() unblocks
+        // immediately with RecvError.
+        if self.server_has_exited() {
+            senders.remove(&channel_id);
+        }
+        drop(senders);
         Channel::new(channel_id, Arc::clone(self), rx)
     }
 
@@ -120,14 +129,15 @@ mod tests {
         let (_, write_end) = UnixStream::pair().unwrap();
         let conn = Connection::new(Box::new(std::io::empty()), Box::new(write_end));
 
+        // Wait for the background reader to detect EOF
+        while !conn.server_has_exited() {
+            std::thread::yield_now();
+        }
+
+        // Channel created AFTER server exit must still unblock, not hang.
         let mut channel = conn.new_channel();
 
-        // Give the background reader a moment to hit EOF and clear senders
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        // receive_request should return an error, not hang
         let result = channel.receive_request();
         assert!(result.is_err());
-        assert!(conn.server_has_exited());
     }
 }
