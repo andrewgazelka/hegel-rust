@@ -8,62 +8,8 @@ mod utils;
 use proc_macro::TokenStream;
 use syn::{Data, DeriveInput, ItemFn, ItemImpl, parse_macro_input};
 
-/// Derive a generator for a struct or enum.
-///
-/// This implements [`DefaultGenerator`](hegel::generators::DefaultGenerator) for the type,
-/// allowing it to be used with [`default`](hegel::generators::default) via `default::<T>()`.
-///
-/// For structs, the generated generator has:
-/// - `<field>(generator)` - builder method to customize each field's generator
-///
-/// For enums, the generated generator has:
-/// - `default_<VariantName>()` - methods returning default variant generators
-/// - `<VariantName>(generator)` - builder methods to customize variant generation
-///
-/// # Struct Example
-///
-/// ```ignore
-/// use hegel::DefaultGenerator;
-/// use hegel::generators::{self as gs, DefaultGenerator as _, Generator as _};
-///
-/// #[derive(DefaultGenerator)]
-/// struct Person {
-///     name: String,
-///     age: u32,
-/// }
-///
-/// #[hegel::test]
-/// fn generates_people(tc: hegel::TestCase) {
-///     let generator = gs::default::<Person>()
-///         .age(gs::integers::<u32>().min_value(0).max_value(120));
-///     let person: Person = tc.draw(generator);
-/// }
-/// ```
-///
-/// # Enum Example
-///
-/// ```ignore
-/// use hegel::DefaultGenerator;
-/// use hegel::generators::{self as gs, DefaultGenerator as _, Generator as _};
-///
-/// #[derive(DefaultGenerator)]
-/// enum Status {
-///     Pending,
-///     Active { since: String },
-///     Error { code: i32, message: String },
-/// }
-///
-/// #[hegel::test]
-/// fn generates_statuses(tc: hegel::TestCase) {
-///     let generator = gs::default::<Status>()
-///         .Active(
-///             gs::default::<Status>()
-///                 .default_Active()
-///                 .since(gs::text().max_size(20))
-///         );
-///     let status: Status = tc.draw(generator);
-/// }
-/// ```
+// documentation for hegel-macros lives in hegel's lib.rs so that we get proper intra-doc links.
+
 #[proc_macro_derive(DefaultGenerator)]
 pub fn derive_generator(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -77,57 +23,11 @@ pub fn derive_generator(input: TokenStream) -> TokenStream {
     }
 }
 
-/// The main entrypoint into Hegel.
-///
-/// The function must take exactly one parameter of type `hegel::TestCase`. The test case can be
-/// used to generate values via `tc.draw()`.
-///
-/// The `#[test]` attribute is added automatically and must not be present on the function.
-///
-/// ```ignore
-/// #[hegel::test]
-/// fn my_test(tc: TestCase) {
-///     let x: i32 = tc.draw(integers());
-///     assert!(x + 0 == x);
-/// }
-///
-/// You can set settings with on `hegel::test`, corresponding to methods on [`Settings`](hegel::Settings):
-///
-/// #[hegel::test(test_cases = 500)]
-/// fn test_runs_many_more_times(tc: TestCase) {
-///     let x: i32 = tc.draw(integers());
-///     assert!(x + 0 == x);
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     hegel_test::expand_test(attr.into(), item.into()).into()
 }
 
-/// Define a composite generator from a function.
-///
-/// The first parameter must be `tc: TestCase` and is passed automatically
-/// when the generator is drawn. Any additional parameters become parameters
-/// of the returned factory function. The function must have an explicit
-/// return type.
-///
-/// ```ignore
-/// use hegel::generators as gs;
-///
-/// #[hegel::composite]
-/// fn sorted_vec(tc: hegel::TestCase, min_len: usize) -> Vec<i32> {
-///     let mut v: Vec<i32> = tc.draw(gs::vecs(gs::integers()).min_size(min_len));
-///     v.sort();
-///     v
-/// }
-///
-/// #[hegel::test]
-/// fn test_sorted(tc: hegel::TestCase) {
-///     let v = tc.draw(sorted_vec(3));
-///     assert!(v.len() >= 3);
-///     assert!(v.windows(2).all(|w| w[0] <= w[1]));
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
