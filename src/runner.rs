@@ -10,14 +10,16 @@ use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::panic::{self, AssertUnwindSafe, catch_unwind};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once};
+use std::time::{Duration, Instant};
 
 const SUPPORTED_PROTOCOL_VERSIONS: (f64, f64) = (0.6, 0.7);
 const HEGEL_SERVER_VERSION: &str = "0.2.3";
 const HEGEL_SERVER_COMMAND_ENV: &str = "HEGEL_SERVER_COMMAND";
 const HEGEL_SERVER_DIR: &str = ".hegel";
-static SERVER_LOG_FILE: std::sync::OnceLock<Mutex<File>> = std::sync::OnceLock::new();
+static SERVER_LOG_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static LOG_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static SESSION: std::sync::OnceLock<HegelSession> = std::sync::OnceLock::new();
 
 static PANIC_HOOK_INIT: Once = Once::new();
@@ -72,12 +74,24 @@ impl HegelSession {
 
         let response = match handshake_result {
             Ok(r) => r,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
+            Err(handshake_err) => {
+                // Wait up to 100ms for the child to exit on its own
+                let exit_status = wait_for_exit(&mut child, Duration::from_millis(100));
+                let child_still_running = exit_status.is_none();
+                if child_still_running {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!(
+                        "The hegel server failed during startup handshake: {handshake_err}\n\n\
+                         The server process did not exit. Possibly bad virtualenv?"
+                    );
+                }
                 let binary_path = std::env::var(HEGEL_SERVER_COMMAND_ENV)
                     .unwrap_or_else(|_| "hegel".to_string());
-                panic!("{}", startup_error_message(&binary_path));
+                panic!(
+                    "{}",
+                    startup_error_message(&binary_path, exit_status.unwrap())
+                );
             }
         };
 
@@ -277,50 +291,89 @@ fn hegel_command() -> Command {
 }
 
 fn server_log_file() -> File {
-    let file = SERVER_LOG_FILE.get_or_init(|| {
-        std::fs::create_dir_all(HEGEL_SERVER_DIR).ok();
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(format!("{HEGEL_SERVER_DIR}/server.log"))
-            .expect("Failed to open server log file");
-        Mutex::new(file)
-    });
-    file.lock()
-        .unwrap()
-        .try_clone()
-        .expect("Failed to clone server log file handle")
+    std::fs::create_dir_all(HEGEL_SERVER_DIR).ok();
+    let pid = std::process::id();
+    let ix = LOG_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = format!("{HEGEL_SERVER_DIR}/server.{pid}-{ix}.log");
+    SERVER_LOG_PATH.set(path.clone()).ok();
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .expect("Failed to open server log file")
 }
 
+fn wait_for_exit(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
+    }
+}
 
-fn startup_error_message(binary_path: &str) -> String {
-    // Try to detect if this is a hegel binary and what version it is
-    if let Ok(output) = Command::new(binary_path).arg("--version").output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Some(version) = parse_hegel_version(&stdout) {
-            return format!(
-                "The hegel server process exited unexpectedly during startup. \
-                 Possibly wrong hegel-core version: expected {}, got {}. \
-                 See .hegel/server.log for diagnostic information.",
-                HEGEL_SERVER_VERSION, version
-            );
+fn startup_error_message(
+    binary_path: &str,
+    exit_status: std::process::ExitStatus,
+) -> String {
+    let mut parts = Vec::new();
+
+    parts.push("The hegel server failed during startup handshake.".to_string());
+    parts.push(format!("The server process exited with {}.", exit_status));
+
+    // Version detection via --version
+    let expected_version_string = format!("hegel (version {})", HEGEL_SERVER_VERSION);
+    match Command::new(binary_path).arg("--version").output() {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if stdout != expected_version_string {
+                parts.push(format!(
+                    "Version mismatch: expected '{}', got '{}'.",
+                    expected_version_string, stdout
+                ));
+            }
+        }
+        Ok(_) => {
+            parts.push(format!(
+                "'{}' --version exited unsuccessfully. Is this a hegel binary?",
+                binary_path
+            ));
+        }
+        Err(e) => {
+            parts.push(format!(
+                "Could not run '{}' --version: {}. Is this a hegel binary?",
+                binary_path, e
+            ));
         }
     }
 
-    format!(
-        "The hegel server command '{}' failed to start. \
-         Ensure {HEGEL_SERVER_COMMAND_ENV} points to a valid hegel-core binary \
-         (expected version {}). \
-         See .hegel/server.log for diagnostic information.",
-        binary_path, HEGEL_SERVER_VERSION
-    )
-}
+    // Include server log contents
+    if let Some(log_path) = SERVER_LOG_PATH.get() {
+        if let Ok(contents) = std::fs::read_to_string(log_path) {
+            if !contents.trim().is_empty() {
+                let lines: Vec<&str> = contents.lines().collect();
+                let display_lines: Vec<&str> = lines.iter().take(3).copied().collect();
+                let mut log_section =
+                    format!("Server log ({}):\n{}", log_path, display_lines.join("\n"));
+                if lines.len() > 3 {
+                    log_section.push_str(&format!("\n... (see {} for full output)", log_path));
+                }
+                parts.push(log_section);
+            }
+        }
+    }
 
-fn parse_hegel_version(output: &str) -> Option<&str> {
-    // Parse "hegel (version X.Y.Z)" format
-    let trimmed = output.trim();
-    let after = trimmed.strip_prefix("hegel (version ")?;
-    after.strip_suffix(')')
+    parts.join("\n\n")
 }
 
 
