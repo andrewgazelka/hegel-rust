@@ -58,9 +58,10 @@ pub fn read_packet<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<Packet> 
             std::io::ErrorKind::InvalidData, // nocov
             format!(
                 // nocov end
-                "Invalid magic number: expected 0x{:08X}, got 0x{:08X}", // nocov
-                PACKET_MAGIC,                                            // nocov
-                magic                                                    // nocov
+                // nocov start
+                "Invalid magic number: expected 0x{:08X}, got 0x{:08X}",
+                PACKET_MAGIC,
+                magic // nocov end
             ),
         ));
     }
@@ -79,9 +80,10 @@ pub fn read_packet<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<Packet> 
             std::io::ErrorKind::InvalidData, // nocov
             format!(
                 // nocov end
-                "Invalid terminator: expected 0x{:02X}, got 0x{:02X}", // nocov
-                PACKET_TERMINATOR,                                     // nocov
-                terminator[0]                                          // nocov
+                // nocov start
+                "Invalid terminator: expected 0x{:02X}, got 0x{:02X}",
+                PACKET_TERMINATOR,
+                terminator[0] // nocov end
             ),
         ));
     }
@@ -99,9 +101,10 @@ pub fn read_packet<R: Read + ?Sized>(reader: &mut R) -> std::io::Result<Packet> 
             std::io::ErrorKind::InvalidData, // nocov
             format!(
                 // nocov end
-                "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}", // nocov
-                checksum,                                             // nocov
-                computed_checksum                                     // nocov
+                // nocov start
+                "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}",
+                checksum,
+                computed_checksum // nocov end
             ),
         ));
     }
@@ -188,7 +191,7 @@ mod tests {
         if let Value::Float(f) = back {
             assert!(f.is_nan());
         } else {
-            panic!("expected Float");
+            panic!("expected Float"); // nocov
         }
     }
 

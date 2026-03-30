@@ -80,10 +80,12 @@ impl RegexGenerator {
     // nocov start
     fn build_schema(&self) -> Value {
         // nocov end
-        cbor_map! { // nocov
+        // nocov start
+        cbor_map! {
             "type" => "regex",
-            "pattern" => self.pattern.as_str(), // nocov
-            "fullmatch" => self.fullmatch // nocov
+            "pattern" => self.pattern.as_str(),
+            "fullmatch" => self.fullmatch
+        // nocov end
         }
     }
 }
@@ -154,7 +156,7 @@ impl BinaryGenerator {
 fn parse_binary(raw: Value) -> Vec<u8> {
     match raw {
         Value::Bytes(bytes) => bytes,
-        _ => panic!("expected Value::Bytes, got {:?}", raw),
+        _ => panic!("expected Value::Bytes, got {:?}", raw), // nocov
     }
 }
 
@@ -306,12 +308,14 @@ impl IpAddressGenerator {
     fn build_schema(&self) -> Value {
         match self.version {
             // nocov end
-            Some(IpVersion::V4) => cbor_map! {"type" => "ipv4"}, // nocov
-            Some(IpVersion::V6) => cbor_map! {"type" => "ipv6"}, // nocov
-            None => cbor_map! { // nocov
-                "one_of" => cbor_array![ // nocov
-                    cbor_map!{"type" => "ipv4"}, // nocov
-                    cbor_map!{"type" => "ipv6"} // nocov
+            // nocov start
+            Some(IpVersion::V4) => cbor_map! {"type" => "ipv4"},
+            Some(IpVersion::V6) => cbor_map! {"type" => "ipv6"},
+            None => cbor_map! {
+                "one_of" => cbor_array![
+                    cbor_map!{"type" => "ipv4"},
+                    cbor_map!{"type" => "ipv6"}
+            // nocov end
                 ]
             },
         }

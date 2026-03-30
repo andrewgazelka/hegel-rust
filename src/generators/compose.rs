@@ -42,11 +42,13 @@ pub const fn fnv1a_hash(bytes: &[u8]) -> u64 {
     // nocov start
     while i < bytes.len() {
         // nocov end
-        hash ^= bytes[i] as u64; // nocov
-        hash = hash.wrapping_mul(FNV_PRIME); // nocov
-        i += 1; // nocov
+        // nocov start
+        hash ^= bytes[i] as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+        i += 1;
     }
-    hash // nocov
+    hash
+    // nocov end
 }
 
 /// Create a generator from imperative code that draws from other generators.

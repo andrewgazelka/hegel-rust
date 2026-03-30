@@ -160,6 +160,7 @@ jobs:
       contents: write  # needed for ratchet auto-update
       pull-requests: write  # needed for creating PRs on main
     steps:
+      # persist-credentials needed for git push in the auto-update step below
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 # zizmor: ignore[artipacked]
         with:
           ref: ${{ github.head_ref || github.ref }}
@@ -187,7 +188,7 @@ jobs:
           fi
 
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -u '*.rs'
           git add .github/coverage-ratchet.json
 

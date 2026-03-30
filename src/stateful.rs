@@ -105,7 +105,7 @@ impl<T> Variables<T> {
             Err(_) => {
                 panic!("{}", STOP_TEST_STRING);
             }
-            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other),
+            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         }
     }
 
@@ -124,10 +124,10 @@ impl<T> Variables<T> {
             Err(_) => {
                 panic!("{}", STOP_TEST_STRING);
             }
-            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other),
+            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         };
         if self.values.contains_key(&variable_id) {
-            panic!("unexpected variable id in map");
+            panic!("unexpected variable id in map"); // nocov
         }
         self.values.insert(variable_id, v);
     }
@@ -158,7 +158,7 @@ pub fn variables<T>(tc: &TestCase) -> Variables<T> {
         Err(_) => {
             panic!("{}", STOP_TEST_STRING);
         }
-        Ok(other) => panic!("Expected integer response for pool id, got {:?}", other),
+        Ok(other) => panic!("Expected integer response for pool id, got {:?}", other), // nocov
     };
     Variables {
         pool_id,

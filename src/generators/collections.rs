@@ -77,7 +77,7 @@ where
 
         Some(BasicGenerator::new(schema, move |raw| {
             let Value::Array(arr) = raw else {
-                panic!("Expected array, got {:?}", raw)
+                panic!("Expected array, got {:?}", raw) // nocov
             };
             arr.into_iter().map(|v| basic.parse_raw(v)).collect()
         }))
@@ -129,9 +129,11 @@ where
         if let Some(basic) = self.as_basic() {
             basic.do_draw(tc)
         } else {
-            tc.start_span(labels::SET); // nocov
-            let mut collection = Collection::new(tc, "composite_set", self.min_size, self.max_size); // nocov
-            let mut set = HashSet::new(); // nocov
+            // nocov start
+            tc.start_span(labels::SET);
+            let mut collection = Collection::new(tc, "composite_set", self.min_size, self.max_size);
+            let mut set = HashSet::new();
+            // nocov end
             // nocov start
             while collection.more() {
                 let element = self.elements.do_draw(tc); // nocov
@@ -140,9 +142,11 @@ where
                     collection.reject(Some("duplicate element")); // nocov
                 }
             }
-            assert!(set.len() >= self.min_size); // nocov
-            tc.stop_span(false); // nocov
-            set // nocov
+            // nocov start
+            assert!(set.len() >= self.min_size);
+            tc.stop_span(false);
+            set
+            // nocov end
         }
     }
 
@@ -165,7 +169,7 @@ where
 
         Some(BasicGenerator::new(schema, move |raw| {
             let Value::Array(arr) = raw else {
-                panic!("Expected array, got {:?}", raw)
+                panic!("Expected array, got {:?}", raw) // nocov
             };
             arr.into_iter().map(|v| basic.parse_raw(v)).collect()
         }))
@@ -218,9 +222,11 @@ where
         if let Some(basic) = self.as_basic() {
             basic.do_draw(tc)
         } else {
-            tc.start_span(labels::MAP); // nocov
-            let mut collection = Collection::new(tc, "composite_map", self.min_size, self.max_size); // nocov
-            let mut map = HashMap::new(); // nocov
+            // nocov start
+            tc.start_span(labels::MAP);
+            let mut collection = Collection::new(tc, "composite_map", self.min_size, self.max_size);
+            let mut map = HashMap::new();
+            // nocov end
             // nocov start
             while collection.more() {
                 let key = self.keys.do_draw(tc); // nocov
@@ -235,9 +241,11 @@ where
                     }
                 }
             }
-            assert!(map.len() >= self.min_size); // nocov
-            tc.stop_span(false); // nocov
-            map // nocov
+            // nocov start
+            assert!(map.len() >= self.min_size);
+            tc.stop_span(false);
+            map
+            // nocov end
         }
     }
 
@@ -263,14 +271,14 @@ where
             // schema expects format [[key, value], ...]
             let values = match raw {
                 Value::Array(arr) => arr,
-                _ => panic!("Expected array, got {:?}", raw),
+                _ => panic!("Expected array, got {:?}", raw), // nocov
             };
 
             let mut map = HashMap::new();
             for value_raw in values {
                 let value = match value_raw {
                     Value::Array(arr) => arr,
-                    _ => panic!("Expected array, got {:?}", value_raw),
+                    _ => panic!("Expected array, got {:?}", value_raw), // nocov
                 };
                 let mut iter = value.into_iter();
                 let raw_k = iter.next().unwrap();
@@ -382,33 +390,37 @@ impl Generator<Value> for FixedDictGenerator<'_> {
     fn do_draw(&self, tc: &TestCase) -> Value {
         if let Some(basic) = self.as_basic() {
             // nocov end
-            basic.do_draw(tc) // nocov
+            // nocov start
+            basic.do_draw(tc)
         } else {
-            tc.start_span(labels::FIXED_DICT); // nocov
-            let entries: Vec<(Value, Value)> = self // nocov
-                .fields // nocov
-                .iter() // nocov
-                .map(|(name, g)| (Value::Text(name.clone()), g.do_draw(tc))) // nocov
-                .collect(); // nocov
-            tc.stop_span(false); // nocov
-            Value::Map(entries) // nocov
+            tc.start_span(labels::FIXED_DICT);
+            let entries: Vec<(Value, Value)> = self
+                .fields
+                .iter()
+                .map(|(name, g)| (Value::Text(name.clone()), g.do_draw(tc)))
+                .collect();
+            tc.stop_span(false);
+            Value::Map(entries)
+            // nocov end
         }
     }
 
     // nocov start
     fn as_basic(&self) -> Option<BasicGenerator<'_, Value>> {
         // nocov end
-        let basics: Vec<BasicGenerator<'_, Value>> = self // nocov
-            .fields // nocov
-            .iter() // nocov
-            .map(|(_, g)| g.as_basic()) // nocov
-            .collect::<Option<Vec<_>>>()?; // nocov
+        // nocov start
+        let basics: Vec<BasicGenerator<'_, Value>> = self
+            .fields
+            .iter()
+            .map(|(_, g)| g.as_basic())
+            .collect::<Option<Vec<_>>>()?;
 
-        let schemas: Vec<Value> = basics.iter().map(|b| b.schema().clone()).collect(); // nocov
+        let schemas: Vec<Value> = basics.iter().map(|b| b.schema().clone()).collect();
 
-        let schema = cbor_map! { // nocov
+        let schema = cbor_map! {
             "type" => "tuple",
-            "elements" => Value::Array(schemas) // nocov
+            "elements" => Value::Array(schemas)
+        // nocov end
         };
 
         let field_names: Vec<String> = self.fields.iter().map(|(name, _)| name.clone()).collect(); // nocov
@@ -418,16 +430,18 @@ impl Generator<Value> for FixedDictGenerator<'_> {
             let arr = match raw {
                 // nocov end
                 Value::Array(arr) => arr, // nocov
-                _ => panic!("Expected array from tuple schema, got {:?}", raw),
+                _ => panic!("Expected array from tuple schema, got {:?}", raw), // nocov
             };
 
-            let entries: Vec<(Value, Value)> = field_names // nocov
-                .iter() // nocov
-                .zip(basics.iter()) // nocov
-                .zip(arr) // nocov
-                .map(|((name, basic), val)| (Value::Text(name.clone()), basic.parse_raw(val))) // nocov
-                .collect(); // nocov
-            Value::Map(entries) // nocov
+            // nocov start
+            let entries: Vec<(Value, Value)> = field_names
+                .iter()
+                .zip(basics.iter())
+                .zip(arr)
+                .map(|((name, basic), val)| (Value::Text(name.clone()), basic.parse_raw(val)))
+                .collect();
+            Value::Map(entries)
+            // nocov end
         }))
     }
 }
@@ -499,7 +513,7 @@ impl<G: Generator<T> + Send + Sync, T, const N: usize> Generator<[T; N]>
         Some(BasicGenerator::new(schema, move |raw| {
             let arr = match raw {
                 Value::Array(arr) => arr,
-                _ => panic!("Expected array from tuple schema, got {:?}", raw),
+                _ => panic!("Expected array from tuple schema, got {:?}", raw), // nocov
             };
             assert_eq!(arr.len(), N);
             let mut iter = arr.into_iter();

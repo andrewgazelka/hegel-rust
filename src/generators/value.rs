@@ -41,9 +41,11 @@ impl From<ciborium::Value> for HegelValue {
                 // nocov end
                 // Encode bytes as array of numbers
                 HegelValue::Array(
-                    b.into_iter() // nocov
-                        .map(|byte| HegelValue::Number(byte as f64)) // nocov
-                        .collect(), // nocov
+                    // nocov start
+                    b.into_iter()
+                        .map(|byte| HegelValue::Number(byte as f64))
+                        .collect(),
+                    // nocov end
                 )
             }
             ciborium::Value::Array(arr) => {
@@ -55,17 +57,19 @@ impl From<ciborium::Value> for HegelValue {
                     .map(|(k, v)| {
                         let key = match k {
                             // nocov end
-                            ciborium::Value::Text(s) => s,   // nocov
-                            other => format!("{:?}", other), // nocov
+                            // nocov start
+                            ciborium::Value::Text(s) => s,
+                            other => format!("{:?}", other),
                         };
-                        (key, HegelValue::from(v)) // nocov
+                        (key, HegelValue::from(v))
                     })
-                    .collect(), // nocov
+                    .collect(),
+                // nocov end
             ),
             ciborium::Value::Tag(2, inner) => {
                 // CBOR tag 2: positive bignum, encoded as big-endian bytes
                 let ciborium::Value::Bytes(bytes) = *inner else {
-                    panic!("Expected Bytes inside bignum tag 2, got {:?}", inner)
+                    panic!("Expected Bytes inside bignum tag 2, got {:?}", inner) // nocov
                 };
                 let mut n = 0u128;
                 for b in &bytes {
@@ -76,7 +80,7 @@ impl From<ciborium::Value> for HegelValue {
             ciborium::Value::Tag(3, inner) => {
                 // CBOR tag 3: negative bignum, value is -1 - n
                 let ciborium::Value::Bytes(bytes) = *inner else {
-                    panic!("Expected Bytes inside bignum tag 3, got {:?}", inner)
+                    panic!("Expected Bytes inside bignum tag 3, got {:?}", inner) // nocov
                 };
                 let mut n = 0u128;
                 for b in &bytes {
@@ -88,9 +92,9 @@ impl From<ciborium::Value> for HegelValue {
             // nocov start
             ciborium::Value::Tag(tag, _) => {
                 // nocov end
-                panic!("Unexpected CBOR tag {tag} in protocol value")
+                panic!("Unexpected CBOR tag {tag} in protocol value") // nocov
             }
-            other => panic!("Unexpected CBOR value type: {:?}", other),
+            other => panic!("Unexpected CBOR value type: {:?}", other), // nocov
         }
     }
 }
@@ -299,7 +303,7 @@ mod tests {
         if let HegelValue::Number(n) = hegel {
             assert!(n.is_nan());
         } else {
-            panic!("expected Number");
+            panic!("expected Number"); // nocov
         }
     }
 

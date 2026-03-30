@@ -14,11 +14,13 @@ impl<T: Clone + Send + Sync> Generator<T> for SampledFromGenerator<T> {
             return basic.do_draw(tc);
         }
 
-        let indices = integers::<usize>() // nocov
-            .min_value(0) // nocov
-            .max_value(self.elements.len() - 1); // nocov
-        let index = indices.do_draw(tc); // nocov
-        self.elements[index].clone() // nocov
+        // nocov start
+        let indices = integers::<usize>()
+            .min_value(0)
+            .max_value(self.elements.len() - 1);
+        let index = indices.do_draw(tc);
+        self.elements[index].clone()
+        // nocov end
     }
 
     fn as_basic(&self) -> Option<BasicGenerator<'_, T>> {
@@ -97,14 +99,14 @@ impl<T> Generator<T> for OneOfGenerator<'_, T> {
         Some(BasicGenerator::new(schema, move |raw| {
             let arr = match raw {
                 Value::Array(arr) => arr,
-                _ => panic!("Expected array from tagged tuple, got {:?}", raw),
+                _ => panic!("Expected array from tagged tuple, got {:?}", raw), // nocov
             };
             let tag = match &arr[0] {
                 Value::Integer(i) => {
                     let val: i128 = (*i).into();
                     val as usize
                 }
-                _ => panic!("Expected integer tag, got {:?}", arr[0]),
+                _ => panic!("Expected integer tag, got {:?}", arr[0]), // nocov
             };
             let value = arr.into_iter().nth(1).unwrap();
             basics[tag].parse_raw(value)
@@ -169,12 +171,14 @@ where
             // nocov start
             let result = if is_some {
                 // nocov end
-                Some(self.inner.do_draw(tc)) // nocov
+                // nocov start
+                Some(self.inner.do_draw(tc))
             } else {
-                None // nocov
+                None
             };
-            tc.stop_span(false); // nocov
-            result // nocov
+            tc.stop_span(false);
+            result
+            // nocov end
         }
     }
 
@@ -202,14 +206,14 @@ where
         Some(BasicGenerator::new(schema, move |raw| {
             let arr = match raw {
                 Value::Array(arr) => arr,
-                _ => panic!("Expected array from tagged tuple, got {:?}", raw),
+                _ => panic!("Expected array from tagged tuple, got {:?}", raw), // nocov
             };
             let tag = match &arr[0] {
                 Value::Integer(i) => {
                     let val: i128 = (*i).into();
                     val as usize
                 }
-                _ => panic!("Expected integer tag, got {:?}", arr[0]),
+                _ => panic!("Expected integer tag, got {:?}", arr[0]), // nocov
             };
 
             if tag == 0 {

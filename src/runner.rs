@@ -95,18 +95,19 @@ impl HegelSession {
             Some(v) => v,
             None => {
                 let _ = child.kill(); // nocov
-                panic!("Bad handshake response: {decoded:?}");
+                panic!("Bad handshake response: {decoded:?}"); // nocov
             }
         };
         let version: f64 = server_version.parse().unwrap_or_else(|_| {
             let _ = child.kill(); // nocov
-            panic!("Bad version number: {server_version}");
+            panic!("Bad version number: {server_version}"); // nocov
         });
 
         let (lo, hi) = SUPPORTED_PROTOCOL_VERSIONS;
         if !(lo <= version && version <= hi) {
             let _ = child.kill(); // nocov
             panic!(
+                // nocov
                 "hegel-rust supports protocol versions {lo} through {hi}, but \
                  the connected server is using protocol version {version}. Upgrading \
                  hegel-rust or downgrading hegel-core might help."
@@ -145,110 +146,92 @@ fn take_panic_info() -> Option<(String, String, String, Backtrace)> {
 /// Frame numbers are renumbered to start at 0.
 // nocov start
 fn format_backtrace(bt: &Backtrace, full: bool) -> String {
-    let backtrace_str = format!("{}", bt); // nocov
+    let backtrace_str = format!("{}", bt);
 
     if full {
-        // nocov end
-        return backtrace_str; // nocov
+        return backtrace_str;
     }
 
     // Filter to short backtrace: keep lines between the markers
     // Frame groups look like:
     //    N: function::name
     //              at /path/to/file.rs:123:45
-    let lines: Vec<&str> = backtrace_str.lines().collect(); // nocov
-    let mut start_idx = 0; // nocov
-    let mut end_idx = lines.len(); // nocov
+    let lines: Vec<&str> = backtrace_str.lines().collect();
+    let mut start_idx = 0;
+    let mut end_idx = lines.len();
 
-    // nocov start
     for (i, line) in lines.iter().enumerate() {
         if line.contains("__rust_end_short_backtrace") {
             // Skip past this frame (find the next frame number)
             for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
-                // nocov end
-                if next_line // nocov
-                    .trim_start() // nocov
-                    .chars() // nocov
-                    .next() // nocov
-                    .map(|c| c.is_ascii_digit()) // nocov
-                    // nocov start
+                if next_line
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
                     .unwrap_or(false)
-                // nocov end
                 {
-                    start_idx = j; // nocov
-                    break; // nocov
+                    start_idx = j;
+                    break;
                 }
             }
         }
-        // nocov start
         if line.contains("__rust_begin_short_backtrace") {
-            // nocov end
             // Find the start of this frame (the line with the frame number)
-            for (j, prev_line) in lines // nocov
-                .iter() // nocov
-                .enumerate() // nocov
-                .take(i + 1) // nocov
-                .collect::<Vec<_>>() // nocov
-                .into_iter() // nocov
-                // nocov start
+            for (j, prev_line) in lines
+                .iter()
+                .enumerate()
+                .take(i + 1)
+                .collect::<Vec<_>>()
+                .into_iter()
                 .rev()
-            // nocov end
             {
-                if prev_line // nocov
-                    .trim_start() // nocov
-                    .chars() // nocov
-                    .next() // nocov
-                    .map(|c| c.is_ascii_digit()) // nocov
-                    // nocov start
+                if prev_line
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
                     .unwrap_or(false)
-                // nocov end
                 {
-                    end_idx = j; // nocov
-                    break; // nocov
+                    end_idx = j;
+                    break;
                 }
             }
-            break; // nocov
+            break;
         }
     }
 
     // Renumber frames starting at 0
-    let filtered: Vec<&str> = lines[start_idx..end_idx].to_vec(); // nocov
-    let mut new_frame_num = 0usize; // nocov
-    let mut result = Vec::new(); // nocov
+    let filtered: Vec<&str> = lines[start_idx..end_idx].to_vec();
+    let mut new_frame_num = 0usize;
+    let mut result = Vec::new();
 
-    // nocov start
     for line in filtered {
-        // nocov end
-        let trimmed = line.trim_start(); // nocov
-        if trimmed // nocov
-            .chars() // nocov
-            .next() // nocov
-            .map(|c| c.is_ascii_digit()) // nocov
-            // nocov start
+        let trimmed = line.trim_start();
+        if trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
             .unwrap_or(false)
-        // nocov end
         {
             // This is a frame number line like "   8: function_name"
             // Find where the number ends (at the colon)
-            // nocov start
             if let Some(colon_pos) = trimmed.find(':') {
-                // nocov end
-                let rest = &trimmed[colon_pos..]; // nocov
-                // Preserve original indentation style (right-aligned numbers) // nocov
-                result.push(format!("{:>4}{}", new_frame_num, rest)); // nocov
-                new_frame_num += 1; // nocov
-            // nocov start
+                let rest = &trimmed[colon_pos..];
+                // Preserve original indentation style (right-aligned numbers)
+                result.push(format!("{:>4}{}", new_frame_num, rest));
+                new_frame_num += 1;
             } else {
-                result.push(line.to_string()); // nocov
+                result.push(line.to_string());
             }
         } else {
-            // nocov end
-            result.push(line.to_string()); // nocov
+            result.push(line.to_string());
         }
     }
 
-    result.join("\n") // nocov
+    result.join("\n")
 }
+// nocov end
 
 // Panic unconditionally prints to stderr, even if it's caught later. This results in
 // messy output during shrinking. To avoid this, we replace the panic hook with our
@@ -380,7 +363,7 @@ fn find_hegel() -> String {
         return override_path; // nocov
     }
     HEGEL_SERVER_COMMAND
-        .get_or_init(|| ensure_hegel_installed().unwrap_or_else(|e| panic!("{e}")))
+        .get_or_init(|| ensure_hegel_installed().unwrap_or_else(|e| panic!("{e}"))) // nocov
         .clone()
 }
 
@@ -752,24 +735,24 @@ where
                     break;
                 }
                 _ => {
-                    panic!("unknown event: {}", event_type);
+                    panic!("unknown event: {}", event_type); // nocov
                 }
             }
         }
 
         // Check for server-side errors before processing results
         if let Some(error_msg) = map_get(&result_data, "error").and_then(as_text) {
-            panic!("Server error: {}", error_msg);
+            panic!("Server error: {}", error_msg); // nocov
         }
 
         // Check for health check failure before processing results
         if let Some(failure_msg) = map_get(&result_data, "health_check_failure").and_then(as_text) {
-            panic!("Health check failure:\n{}", failure_msg);
+            panic!("Health check failure:\n{}", failure_msg); // nocov
         }
 
         // Check for flaky test detection
         if let Some(flaky_msg) = map_get(&result_data, "flaky").and_then(as_text) {
-            panic!("Flaky test detected: {}", flaky_msg);
+            panic!("Flaky test detected: {}", flaky_msg); // nocov
         }
 
         let n_interesting = map_get(&result_data, "interesting_test_cases")
@@ -828,6 +811,7 @@ where
         if is_running_in_antithesis() {
             #[cfg(not(feature = "antithesis"))]
             panic!(
+                // nocov
                 "When Hegel is run inside of Antithesis, it requires the `antithesis` feature. \
                 You can add it with {{ features = [\"antithesis\"] }}."
             );
@@ -881,16 +865,16 @@ fn run_test_case<F: FnMut(TestCase)>(
 
                 // Take panic info - we need location for origin, and print details on final
                 let (thread_name, thread_id, location, backtrace) = take_panic_info()
+                    // nocov start
                     .unwrap_or_else(|| {
-                        // nocov start
                         (
-                            // nocov end
-                            "<unknown>".to_string(), // nocov
-                            "?".to_string(),         // nocov
-                            "<unknown>".to_string(), // nocov
-                            Backtrace::disabled(),   // nocov
+                            "<unknown>".to_string(),
+                            "?".to_string(),
+                            "<unknown>".to_string(),
+                            Backtrace::disabled(),
                         )
                     });
+                // nocov end
 
                 if is_final {
                     eprintln!(
@@ -899,20 +883,20 @@ fn run_test_case<F: FnMut(TestCase)>(
                     );
                     eprintln!("{}", msg);
 
+                    // nocov start
                     if backtrace.status() == BacktraceStatus::Captured {
-                        let is_full = std::env::var("RUST_BACKTRACE") // nocov
-                            .map(|v| v == "full") // nocov
-                            .unwrap_or(false); // nocov
-                        let formatted = format_backtrace(&backtrace, is_full); // nocov
-                        eprintln!("stack backtrace:\n{}", formatted); // nocov
-                        // nocov start
+                        let is_full = std::env::var("RUST_BACKTRACE")
+                            .map(|v| v == "full")
+                            .unwrap_or(false);
+                        let formatted = format_backtrace(&backtrace, is_full);
+                        eprintln!("stack backtrace:\n{}", formatted);
                         if !is_full {
                             eprintln!(
-                                // nocov end
-                                "note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace." // nocov
+                                "note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace."
                             );
                         }
                     }
+                    // nocov end
                 }
 
                 let origin = format!("Panic at {}", location);

@@ -240,10 +240,12 @@ impl TestCase {
     pub fn start_span(&self, label: u64) {
         self.local.borrow_mut().span_depth += 1;
         if let Err(StopTestError) = self.send_request("start_span", &cbor_map! {"label" => label}) {
-            let mut local = self.local.borrow_mut(); // nocov
-            assert!(local.span_depth > 0); // nocov
-            local.span_depth -= 1; // nocov
-            drop(local); // nocov
+            // nocov start
+            let mut local = self.local.borrow_mut();
+            assert!(local.span_depth > 0);
+            local.span_depth -= 1;
+            drop(local);
+            // nocov end
             panic!("{}", STOP_TEST_STRING);
         }
     }
@@ -333,7 +335,7 @@ impl TestCase {
                     // nocov end
                     panic!("{}", SERVER_CRASHED_MESSAGE);
                 } else {
-                    panic!("Failed to communicate with Hegel: {}", e);
+                    panic!("Failed to communicate with Hegel: {}", e); // nocov
                 }
             }
         }
@@ -375,7 +377,7 @@ pub fn generate_from_schema<T: serde::de::DeserializeOwned>(tc: &TestCase, schem
 pub fn deserialize_value<T: serde::de::DeserializeOwned>(raw: Value) -> T {
     let hv = value::HegelValue::from(raw.clone());
     value::from_hegel_value(hv).unwrap_or_else(|e| {
-        panic!("Failed to deserialize value: {}\nValue: {:?}", e, raw);
+        panic!("Failed to deserialize value: {}\nValue: {:?}", e, raw); // nocov
     })
 }
 
@@ -423,6 +425,7 @@ impl<'a> Collection<'a> {
             let name = match response {
                 Value::Text(s) => s,
                 _ => panic!(
+                    // nocov
                     "Expected text response from new_collection, got {:?}",
                     response
                 ),
@@ -450,7 +453,7 @@ impl<'a> Collection<'a> {
         };
         let result = match response {
             Value::Bool(b) => b,
-            _ => panic!("Expected bool from collection_more, got {:?}", response),
+            _ => panic!("Expected bool from collection_more, got {:?}", response), // nocov
         };
         if !result {
             self.finished = true;
@@ -463,11 +466,13 @@ impl<'a> Collection<'a> {
     pub fn reject(&mut self, why: Option<&str>) {
         if self.finished {
             // nocov end
-            return; // nocov
+            // nocov start
+            return;
         }
-        let server_name = self.ensure_initialized().to_string(); // nocov
-        let mut payload = cbor_map! { // nocov
-            "collection" => server_name.as_str() // nocov
+        let server_name = self.ensure_initialized().to_string();
+        let mut payload = cbor_map! {
+            "collection" => server_name.as_str()
+            // nocov end
         };
         // nocov start
         if let Some(reason) = why {

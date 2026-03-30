@@ -7,10 +7,10 @@ Custom Code Coverage Check Script
 =================================
 
 PURPOSE:
-This script provides a more nuanced coverage check than simple percentage thresholds.
+This script provides a more specific coverage check than simple percentage thresholds.
 LLVM's coverage instrumentation counts regions which sometimes includes closing
 braces of control structures as separate coverage points. Additionally, certain
-patterns like todo!(), unreachable!(), and panic!() are expected to be uncovered.
+patterns like todo!() and unreachable!() are allowed to be uncovered.
 
 ALLOWED UNCOVERED PATTERNS:
 ---------------------------
@@ -27,26 +27,22 @@ ALLOWED UNCOVERED PATTERNS:
    Lines that are just unreachable!() or unreachable!("message") mark code
    paths that should never be reached.
 
-4. panic!() Calls
-   Lines containing a panic!() invocation. These are defensive assertions
-   that should never be triggered in normal operation.
-
-5. Multi-line macro continuations
-   Continuation lines inside multi-line panic!(), unreachable!(), or todo!()
+4. Multi-line macro continuations
+   Continuation lines inside multi-line unreachable!() or todo!()
    calls (e.g. format string arguments).
 
-6. #[ignore]d test bodies
+5. #[ignore]d test bodies
    LLVM-cov marks the body of #[ignore]d tests as uncovered because
    the test framework compiles them but never runs them.
 
-7. // nocov Annotations
+6. // nocov Annotations
    Lines marked with // nocov are manually excluded from line coverage.
    Block exclusions with // nocov start ... // nocov end are also supported.
    These are tracked by a ratchet mechanism -- the count can only decrease.
 
 RATCHET MECHANISM:
 ------------------
-The count of // nocov annotations is tracked in .github/coverage-ratchet.json.
+The number of lines excluded via // nocov is tracked in .github/coverage-ratchet.json.
 This count may only decrease over time. If coverage analysis reveals that a
 line-level annotation is no longer needed (the code is now covered), the
 annotation is automatically removed.
@@ -160,27 +156,9 @@ class UncoveredLine:
             return True
         return False
 
-    def is_panic_call(self) -> bool:
-        """
-        Check if this line contains a panic!() invocation.
-
-        Matches standalone panic!() and match-arm panic!():
-            panic!("msg")
-            _ => panic!("msg"),
-            panic!(            // multi-line start
-        """
-        stripped = self.content.strip()
-        if re.search(r"panic!\s*\(.*\)\s*[;,]?\s*$", stripped):
-            return True
-        if re.search(r"panic!\s*\(", stripped) and not stripped.rstrip(
-            ";"
-        ).rstrip().endswith(")"):
-            return True
-        return False
-
     def is_inside_excluded_macro(self) -> bool:
         """
-        Check if this line is a continuation of a multi-line panic!/unreachable!/todo!().
+        Check if this line is a continuation of a multi-line unreachable!/todo!().
 
         Looks backward for an unclosed macro call that spans multiple lines.
         """
@@ -197,7 +175,7 @@ class UncoveredLine:
             if start < 0 or start >= len(lines):
                 continue
             line = lines[start].strip()
-            if re.search(r"\b(panic|unreachable|todo)!\s*\(", line):
+            if re.search(r"\b(unreachable|todo)!\s*\(", line):
                 # Count parens from macro start to line BEFORE current
                 paren_depth = 0
                 for check_idx in range(start, idx):
@@ -653,6 +631,68 @@ def write_ratchet(nocov: int) -> None:
         f.write("\n")
 
 
+def check_consecutive_nocov() -> int:
+    """Check that no 3+ consecutive lines have inline // nocov.
+
+    Long runs should use // nocov start ... // nocov end blocks instead.
+    Returns 0 if OK, 1 if violations found.
+    """
+    nocov_inline = re.compile(r"//\s*nocov\b")
+    nocov_block = re.compile(r"//\s*nocov\s+(start|end)\b")
+
+    violations: list[tuple[Path, int, int]] = []
+
+    for src_dir in SOURCE_DIRS:
+        if not src_dir.exists():
+            continue
+        for rs_file in sorted(src_dir.rglob("*.rs")):
+            try:
+                in_block = False
+                run_start = -1
+                run_length = 0
+                with rs_file.open() as f:
+                    for i, line in enumerate(f, 1):
+                        if nocov_block.search(line):
+                            if "start" in line:
+                                in_block = True
+                            else:
+                                in_block = False
+                            if run_length >= 3:
+                                violations.append((rs_file, run_start, run_length))
+                            run_length = 0
+                            continue
+
+                        if in_block:
+                            continue
+
+                        if nocov_inline.search(line):
+                            if run_length == 0:
+                                run_start = i
+                            run_length += 1
+                        else:
+                            if run_length >= 3:
+                                violations.append((rs_file, run_start, run_length))
+                            run_length = 0
+
+                if run_length >= 3:
+                    violations.append((rs_file, run_start, run_length))
+            except (OSError, IOError):
+                continue
+
+    if violations:
+        print("\nConsecutive // nocov annotations found:")
+        print("Use // nocov start ... // nocov end blocks instead.\n")
+        for file_path, start, length in violations:
+            try:
+                rel = file_path.relative_to(Path.cwd())
+            except ValueError:
+                rel = file_path
+            print(f"  {rel}:{start}: {length} consecutive lines")
+        return 1
+
+    return 0
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Analysis
 # ──────────────────────────────────────────────────────────────────────
@@ -673,11 +713,7 @@ def check_uncovered_lines(uncovered: list[UncoveredLine]) -> int:
             structural.append(line)
         elif line.is_test_code():
             test_code.append(line)
-        elif (
-            line.is_todo_placeholder()
-            or line.is_unreachable_placeholder()
-            or line.is_panic_call()
-        ):
+        elif line.is_todo_placeholder() or line.is_unreachable_placeholder():
             placeholders.append(line)
         elif line.is_inside_excluded_macro():
             macro_continuations.append(line)
@@ -694,7 +730,7 @@ def check_uncovered_lines(uncovered: list[UncoveredLine]) -> int:
     print()
     print(f"Uncovered closing braces (allowed):           {len(structural)}")
     print(f"Uncovered #[cfg(test)] code (allowed):        {len(test_code)}")
-    print(f"Uncovered todo!/unreachable!/panic! (allowed): {len(placeholders)}")
+    print(f"Uncovered todo!/unreachable! (allowed):        {len(placeholders)}")
     print(f"Uncovered macro continuations (allowed):      {len(macro_continuations)}")
     print(f"Uncovered #[ignore]d test bodies (allowed):   {len(ignored_tests)}")
     print(f"Uncovered // nocov lines (allowed):           {len(nocov)}")
@@ -714,11 +750,8 @@ def check_uncovered_lines(uncovered: list[UncoveredLine]) -> int:
             rel_path = line.file
         print(f"  {rel_path}:{line.line_number}: {line.content.strip()}")
     print()
-    print("ACTION REQUIRED:")
-    print("  1. Add tests for the uncovered code, OR")
-    print("  2. If truly untestable, add a // nocov annotation")
-    print()
-    print("DO NOT blindly add // nocov! Each annotation must be justified.")
+    print("Add tests for the uncovered code, or if truly untestable,")
+    print("add a // nocov annotation.")
     return 1
 
 
@@ -743,25 +776,29 @@ def main() -> int:
     else:
         print("\n100% line coverage -- no uncovered lines at all!")
 
-    # 4. Cleanup: remove annotations from code that is now covered
+    # 4. Check for consecutive inline nocov (should use blocks)
+    result = check_consecutive_nocov()
+    if result != 0:
+        return result
+
+    # 5. Cleanup: remove annotations from code that is now covered
     nocov_removed = cleanup_unnecessary_annotations(coverage)
     if nocov_removed > 0:
         print(f"\nRemoved {nocov_removed} unnecessary // nocov annotations")
 
-    # 5. Count remaining annotations
+    # 6. Count remaining annotations
     nocov_count = count_annotations()
     print(f"\nCoverage annotations: {nocov_count} // nocov")
 
-    # 6. Check ratchet
+    # 7. Check ratchet
     nocov_limit = read_ratchet()
 
     if nocov_count > nocov_limit:
         print(f"\nCoverage annotation ratchet EXCEEDED!")
         print(f"  // nocov: {nocov_count} (limit: {nocov_limit})")
         print()
-        print("You may not add new // nocov annotations without explicit")
-        print("human approval. Remove the annotations or add tests to")
-        print("cover the code.")
+        print("The nocov ratchet may not be increased. Remove the")
+        print("annotations or add tests to cover the code.")
         return 1
 
     ratchet_changed = False
