@@ -1,4 +1,4 @@
-pub use crate::backend::{Backend, StopTestError};
+pub use crate::backend::{DataSource, DataSourceError};
 use crate::generators::Generator;
 use ciborium::Value;
 use std::cell::RefCell;
@@ -29,8 +29,16 @@ pub(crate) const ASSUME_FAIL_STRING: &str = "__HEGEL_ASSUME_FAIL";
 /// assumption failures apart from backend-initiated data exhaustion.
 pub(crate) const STOP_TEST_STRING: &str = "__HEGEL_STOP_TEST";
 
+/// Panic with the appropriate sentinel for the given data source error.
+fn panic_on_data_source_error(e: DataSourceError) -> ! {
+    match e {
+        DataSourceError::StopTest => panic!("{}", STOP_TEST_STRING),
+        DataSourceError::Assume => panic!("{}", ASSUME_FAIL_STRING),
+    }
+}
+
 pub(crate) struct TestCaseGlobalData {
-    backend: Box<dyn Backend>,
+    data_source: Box<dyn DataSource>,
     is_last_run: bool,
 }
 
@@ -80,7 +88,7 @@ impl std::fmt::Debug for TestCase {
 }
 
 impl TestCase {
-    pub(crate) fn new(backend: Box<dyn Backend>, is_last_run: bool) -> Self {
+    pub(crate) fn new(data_source: Box<dyn DataSource>, is_last_run: bool) -> Self {
         let on_draw: Rc<dyn Fn(&str)> = if is_last_run {
             Rc::new(|msg| eprintln!("{}", msg))
         } else {
@@ -88,7 +96,7 @@ impl TestCase {
         };
         TestCase {
             global: Rc::new(TestCaseGlobalData {
-                backend,
+                data_source,
                 is_last_run,
             }),
             local: RefCell::new(TestCaseLocalData {
@@ -197,21 +205,21 @@ impl TestCase {
         ));
     }
 
-    /// Access the backend for this test case.
-    pub(crate) fn backend(&self) -> &dyn Backend {
-        self.global.backend.as_ref()
+    /// Access the data source for this test case.
+    pub(crate) fn data_source(&self) -> &dyn DataSource {
+        self.global.data_source.as_ref()
     }
 
     #[doc(hidden)]
     pub fn start_span(&self, label: u64) {
         self.local.borrow_mut().span_depth += 1;
-        if let Err(StopTestError) = self.backend().start_span(label) {
+        if let Err(e) = self.data_source().start_span(label) {
             // nocov start
             let mut local = self.local.borrow_mut();
             assert!(local.span_depth > 0);
             local.span_depth -= 1;
             drop(local);
-            panic!("{}", STOP_TEST_STRING);
+            panic_on_data_source_error(e);
             // nocov end
         }
     }
@@ -223,18 +231,16 @@ impl TestCase {
             assert!(local.span_depth > 0);
             local.span_depth -= 1;
         }
-        let _ = self.backend().stop_span(discard);
+        let _ = self.data_source().stop_span(discard);
     }
 }
 
 /// Send a schema to the backend and return the raw CBOR response.
 #[doc(hidden)]
 pub fn generate_raw(tc: &TestCase, schema: &Value) -> Value {
-    match tc.backend().generate(schema) {
+    match tc.data_source().generate(schema) {
         Ok(v) => v,
-        Err(StopTestError) => {
-            panic!("{}", STOP_TEST_STRING);
-        }
+        Err(e) => panic_on_data_source_error(e),
     }
 }
 
@@ -282,15 +288,13 @@ impl<'a> Collection<'a> {
 
     fn ensure_initialized(&mut self) -> &str {
         if self.handle.is_none() {
-            let name = match self.tc.backend().new_collection(
-                &self.base_name,
+            let name = match self.tc.data_source().new_collection(
+                Some(&self.base_name),
                 self.min_size as u64,
                 self.max_size.map(|m| m as u64),
             ) {
                 Ok(name) => name,
-                Err(StopTestError) => {
-                    panic!("{}", STOP_TEST_STRING); // nocov
-                }
+                Err(e) => panic_on_data_source_error(e), // nocov
             };
             self.handle = Some(name);
         }
@@ -303,11 +307,11 @@ impl<'a> Collection<'a> {
             return false; // nocov
         }
         let handle = self.ensure_initialized().to_string();
-        let result = match self.tc.backend().collection_more(&handle) {
+        let result = match self.tc.data_source().collection_more(&handle) {
             Ok(b) => b,
-            Err(StopTestError) => {
+            Err(e) => {
                 self.finished = true;
-                panic!("{}", STOP_TEST_STRING);
+                panic_on_data_source_error(e);
             }
         };
         if !result {
@@ -323,7 +327,7 @@ impl<'a> Collection<'a> {
             return;
         }
         let handle = self.ensure_initialized().to_string();
-        let _ = self.tc.backend().collection_reject(&handle, why);
+        let _ = self.tc.data_source().collection_reject(&handle, why);
     }
     // nocov end
 }

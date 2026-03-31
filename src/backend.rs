@@ -1,56 +1,69 @@
 use crate::Settings;
 use ciborium::Value;
 
-/// Error indicating the backend ran out of data for this test case.
+/// Error returned by [`DataSource`] methods when an operation cannot complete.
 #[derive(Debug)]
-pub struct StopTestError;
-impl std::fmt::Display for StopTestError {
+pub enum DataSourceError {
+    /// The backend ran out of data for this test case.
+    StopTest,
+    /// The backend rejected the current draw (e.g. a generated float could
+    /// not be represented at the requested width).
+    Assume,
+}
+
+impl std::fmt::Display for DataSourceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Backend ran out of data for this test case (StopTest)")
+        match self {
+            DataSourceError::StopTest => {
+                write!(f, "Backend ran out of data for this test case (StopTest)")
+            }
+            DataSourceError::Assume => write!(f, "Backend rejected the current draw (Assume)"),
+        }
     }
 }
-impl std::error::Error for StopTestError {}
+impl std::error::Error for DataSourceError {}
 
-/// Backend for test case data generation.
+/// Data source for test case generation.
 ///
 /// Abstracts all communication with a data source (e.g. the hegel-core server)
-/// behind typed methods. Each fallible method returns `Result<T, StopTestError>`
-/// for operations that can be cut short by data exhaustion.
+/// behind typed methods. Each fallible method returns `Result<T, DataSourceError>`
+/// for operations that can be cut short by data exhaustion or assumption rejection.
 ///
 /// All methods take `&self` — implementations use interior mutability as needed.
-pub trait Backend {
+pub trait DataSource {
     /// Send a CBOR schema and receive a generated CBOR value.
-    fn generate(&self, schema: &Value) -> Result<Value, StopTestError>;
+    fn generate(&self, schema: &Value) -> Result<Value, DataSourceError>;
 
     /// Begin a labeled span (used for composite generator structure).
-    fn start_span(&self, label: u64) -> Result<(), StopTestError>;
+    fn start_span(&self, label: u64) -> Result<(), DataSourceError>;
 
     /// End the current span. If `discard` is true, the span's choices are discarded.
-    fn stop_span(&self, discard: bool) -> Result<(), StopTestError>;
+    fn stop_span(&self, discard: bool) -> Result<(), DataSourceError>;
 
     /// Create a new collection. Returns an opaque handle.
     fn new_collection(
         &self,
-        name: &str,
+        name: Option<&str>,
         min_size: u64,
         max_size: Option<u64>,
-    ) -> Result<String, StopTestError>;
+    ) -> Result<String, DataSourceError>;
 
     /// Ask whether the collection should produce another element.
-    fn collection_more(&self, collection: &str) -> Result<bool, StopTestError>;
+    fn collection_more(&self, collection: &str) -> Result<bool, DataSourceError>;
 
     /// Reject the last element drawn from a collection.
-    fn collection_reject(&self, collection: &str, why: Option<&str>) -> Result<(), StopTestError>;
+    fn collection_reject(&self, collection: &str, why: Option<&str>)
+    -> Result<(), DataSourceError>;
 
     /// Create a new variable pool. Returns an opaque pool id.
-    fn new_pool(&self) -> Result<i128, StopTestError>;
+    fn new_pool(&self) -> Result<i128, DataSourceError>;
 
     /// Register a new variable in the pool. Returns the variable id.
-    fn pool_add(&self, pool_id: i128) -> Result<i128, StopTestError>;
+    fn pool_add(&self, pool_id: i128) -> Result<i128, DataSourceError>;
 
     /// Draw a variable id from the pool.
     /// If `consume` is true, the variable is removed from the pool.
-    fn pool_generate(&self, pool_id: i128, consume: bool) -> Result<i128, StopTestError>;
+    fn pool_generate(&self, pool_id: i128, consume: bool) -> Result<i128, DataSourceError>;
 
     /// Signal that the test case is complete.
     fn mark_complete(&self, status: &str, origin: Option<&str>);
@@ -64,8 +77,10 @@ pub trait Backend {
 pub enum TestCaseResult {
     /// Test case passed normally.
     Valid,
-    /// Test case was rejected (assumption failed or data exhaustion).
+    /// Test case was rejected because an assumption failed.
     Invalid,
+    /// Test case was rejected because the backend ran out of data.
+    Overrun,
     /// Test case found a bug.
     Interesting {
         /// The panic message from the failing test.
@@ -84,7 +99,7 @@ pub struct TestRunResult {
 
 /// Drives the test execution lifecycle.
 ///
-/// Implementations control how test cases are generated, how backends
+/// Implementations control how test cases are generated, how data sources
 /// are created for each test case, and how shrinking/replay works.
 /// This trait has no reference to any external process — it can be
 /// implemented purely in memory.
@@ -92,7 +107,7 @@ pub trait TestRunner {
     /// Execute a test run.
     ///
     /// `run_case` is called for each test case with:
-    /// - A backend for generating test data
+    /// - A data source for generating test data
     /// - A bool indicating whether this is the final replay of a minimal failing example
     ///
     /// The callback returns the result of running the test case.
@@ -100,6 +115,6 @@ pub trait TestRunner {
         &self,
         settings: &Settings,
         database_key: Option<&str>,
-        run_case: &mut dyn FnMut(Box<dyn Backend>, bool) -> TestCaseResult,
+        run_case: &mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
     ) -> TestRunResult;
 }

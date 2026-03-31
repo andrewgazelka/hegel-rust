@@ -1,5 +1,5 @@
 use crate::antithesis::{TestLocation, is_running_in_antithesis};
-use crate::backend::{Backend, StopTestError, TestCaseResult, TestRunResult, TestRunner};
+use crate::backend::{DataSource, DataSourceError, TestCaseResult, TestRunResult, TestRunner};
 use crate::cbor_utils::{as_bool, as_text, as_u64, cbor_map, map_get, map_insert};
 use crate::control::{currently_in_test_context, with_test_context};
 use crate::protocol::{Connection, HANDSHAKE_STRING, SERVER_CRASHED_MESSAGE, Stream};
@@ -56,9 +56,9 @@ impl ServerBackend {
         }
     }
 
-    fn send_request(&self, command: &str, payload: &Value) -> Result<Value, StopTestError> {
+    fn send_request(&self, command: &str, payload: &Value) -> Result<Value, DataSourceError> {
         if self.aborted.get() {
-            return Err(StopTestError);
+            return Err(DataSourceError::StopTest);
         }
         let debug = *PROTOCOL_DEBUG || self.verbosity == Verbosity::Debug;
 
@@ -90,7 +90,12 @@ impl ServerBackend {
             }
             Err(e) => {
                 let error_msg = e.to_string();
-                if error_msg.contains("overflow")
+                if error_msg.contains("UnsatisfiedAssumption") {
+                    if debug {
+                        eprintln!("RESPONSE: UnsatisfiedAssumption");
+                    }
+                    Err(DataSourceError::Assume)
+                } else if error_msg.contains("overflow")
                     || error_msg.contains("StopTest")
                     || error_msg.contains("stream is closed")
                 {
@@ -99,13 +104,13 @@ impl ServerBackend {
                     }
                     self.stream.borrow_mut().mark_closed();
                     self.aborted.set(true);
-                    Err(StopTestError)
+                    Err(DataSourceError::StopTest)
                 } else if error_msg.contains("FlakyStrategyDefinition")
                     || error_msg.contains("FlakyReplay")
                 {
                     self.stream.borrow_mut().mark_closed();
                     self.aborted.set(true);
-                    Err(StopTestError)
+                    Err(DataSourceError::StopTest)
                 } else if self.connection.server_has_exited() {
                     panic!("{}", SERVER_CRASHED_MESSAGE);
                 } else {
@@ -116,31 +121,33 @@ impl ServerBackend {
     }
 }
 
-impl Backend for ServerBackend {
-    fn generate(&self, schema: &Value) -> Result<Value, StopTestError> {
+impl DataSource for ServerBackend {
+    fn generate(&self, schema: &Value) -> Result<Value, DataSourceError> {
         self.send_request("generate", &cbor_map! {"schema" => schema.clone()})
     }
 
-    fn start_span(&self, label: u64) -> Result<(), StopTestError> {
+    fn start_span(&self, label: u64) -> Result<(), DataSourceError> {
         self.send_request("start_span", &cbor_map! {"label" => label})?;
         Ok(())
     }
 
-    fn stop_span(&self, discard: bool) -> Result<(), StopTestError> {
+    fn stop_span(&self, discard: bool) -> Result<(), DataSourceError> {
         self.send_request("stop_span", &cbor_map! {"discard" => discard})?;
         Ok(())
     }
 
     fn new_collection(
         &self,
-        name: &str,
+        name: Option<&str>,
         min_size: u64,
         max_size: Option<u64>,
-    ) -> Result<String, StopTestError> {
+    ) -> Result<String, DataSourceError> {
         let mut payload = cbor_map! {
-            "name" => name,
             "min_size" => min_size
         };
+        if let Some(n) = name {
+            map_insert(&mut payload, "name", n);
+        }
         if let Some(max) = max_size {
             map_insert(&mut payload, "max_size", max);
         }
@@ -154,7 +161,7 @@ impl Backend for ServerBackend {
         }
     }
 
-    fn collection_more(&self, collection: &str) -> Result<bool, StopTestError> {
+    fn collection_more(&self, collection: &str) -> Result<bool, DataSourceError> {
         let response =
             self.send_request("collection_more", &cbor_map! { "collection" => collection })?;
         match response {
@@ -163,7 +170,11 @@ impl Backend for ServerBackend {
         }
     }
 
-    fn collection_reject(&self, collection: &str, why: Option<&str>) -> Result<(), StopTestError> {
+    fn collection_reject(
+        &self,
+        collection: &str,
+        why: Option<&str>,
+    ) -> Result<(), DataSourceError> {
         let mut payload = cbor_map! {
             "collection" => collection
         };
@@ -174,7 +185,7 @@ impl Backend for ServerBackend {
         Ok(())
     }
 
-    fn new_pool(&self) -> Result<i128, StopTestError> {
+    fn new_pool(&self) -> Result<i128, DataSourceError> {
         let response = self.send_request("new_pool", &cbor_map! {})?;
         match response {
             Value::Integer(i) => Ok(i.into()),
@@ -182,7 +193,7 @@ impl Backend for ServerBackend {
         }
     }
 
-    fn pool_add(&self, pool_id: i128) -> Result<i128, StopTestError> {
+    fn pool_add(&self, pool_id: i128) -> Result<i128, DataSourceError> {
         let response = self.send_request("pool_add", &cbor_map! {"pool_id" => pool_id})?;
         match response {
             Value::Integer(i) => Ok(i.into()),
@@ -190,7 +201,7 @@ impl Backend for ServerBackend {
         }
     }
 
-    fn pool_generate(&self, pool_id: i128, consume: bool) -> Result<i128, StopTestError> {
+    fn pool_generate(&self, pool_id: i128, consume: bool) -> Result<i128, DataSourceError> {
         let response = self.send_request(
             "pool_generate",
             &cbor_map! {
@@ -327,7 +338,7 @@ impl TestRunner for ServerTestRunner {
         &self,
         settings: &Settings,
         database_key: Option<&str>,
-        run_case: &mut dyn FnMut(Box<dyn Backend>, bool) -> TestCaseResult,
+        run_case: &mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
     ) -> TestRunResult {
         let session = HegelSession::get();
         let connection = &session.connection;
@@ -1092,11 +1103,11 @@ where
 // ─── Generic test case execution ────────────────────────────────────────────
 
 fn run_test_case(
-    backend: Box<dyn Backend>,
+    data_source: Box<dyn DataSource>,
     test_fn: &mut dyn FnMut(TestCase),
     is_final: bool,
 ) -> TestCaseResult {
-    let tc = TestCase::new(backend, is_final);
+    let tc = TestCase::new(data_source, is_final);
 
     let result = with_test_context(|| catch_unwind(AssertUnwindSafe(|| test_fn(tc.clone()))));
 
@@ -1104,8 +1115,10 @@ fn run_test_case(
         Ok(()) => (TestCaseResult::Valid, None),
         Err(e) => {
             let msg = panic_message(e);
-            if msg == ASSUME_FAIL_STRING || msg == STOP_TEST_STRING {
+            if msg == ASSUME_FAIL_STRING {
                 (TestCaseResult::Invalid, None)
+            } else if msg == STOP_TEST_STRING {
+                (TestCaseResult::Overrun, None)
             } else {
                 // Take panic info - we need location for origin, and print details on final
                 let (thread_name, thread_id, location, backtrace) = take_panic_info()
@@ -1148,15 +1161,15 @@ fn run_test_case(
         }
     };
 
-    // Send mark_complete via the backend.
-    // Skip if test was aborted (StopTest) - the backend already closed.
-    if !tc.backend().test_aborted() {
+    // Send mark_complete via the data source.
+    // Skip if test was aborted (StopTest) - the data source already closed.
+    if !tc.data_source().test_aborted() {
         let status = match &tc_result {
             TestCaseResult::Valid => "VALID",
-            TestCaseResult::Invalid => "INVALID",
+            TestCaseResult::Invalid | TestCaseResult::Overrun => "INVALID",
             TestCaseResult::Interesting { .. } => "INTERESTING",
         };
-        tc.backend().mark_complete(status, origin.as_deref());
+        tc.data_source().mark_complete(status, origin.as_deref());
     }
 
     tc_result
