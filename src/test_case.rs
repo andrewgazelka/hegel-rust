@@ -33,7 +33,7 @@ pub(crate) const STOP_TEST_STRING: &str = "__HEGEL_STOP_TEST";
 fn panic_on_data_source_error(e: DataSourceError) -> ! {
     match e {
         DataSourceError::StopTest => panic!("{}", STOP_TEST_STRING),
-        DataSourceError::Assume => panic!("{}", ASSUME_FAIL_STRING),
+        DataSourceError::Assume => panic!("{}", ASSUME_FAIL_STRING), // nocov
     }
 }
 

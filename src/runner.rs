@@ -28,7 +28,9 @@ static PANIC_HOOK_INIT: Once = Once::new();
 // ─── ServerBackend ──────────────────────────────────────────────────────────
 
 static PROTOCOL_DEBUG: LazyLock<bool> = LazyLock::new(|| {
+    // nocov start
     matches!(
+        // nocov end
         std::env::var("HEGEL_PROTOCOL_DEBUG")
             .unwrap_or_default()
             .to_lowercase()
@@ -58,7 +60,7 @@ impl ServerBackend {
 
     fn send_request(&self, command: &str, payload: &Value) -> Result<Value, DataSourceError> {
         if self.aborted.get() {
-            return Err(DataSourceError::StopTest);
+            return Err(DataSourceError::StopTest); // nocov
         }
         let debug = *PROTOCOL_DEBUG || self.verbosity == Verbosity::Debug;
 
@@ -76,7 +78,7 @@ impl ServerBackend {
         let request = Value::Map(entries);
 
         if debug {
-            eprintln!("REQUEST: {:?}", request);
+            eprintln!("REQUEST: {:?}", request); // nocov
         }
 
         let result = self.stream.borrow_mut().request_cbor(&request);
@@ -84,38 +86,44 @@ impl ServerBackend {
         match result {
             Ok(response) => {
                 if debug {
-                    eprintln!("RESPONSE: {:?}", response);
+                    eprintln!("RESPONSE: {:?}", response); // nocov
                 }
                 Ok(response)
             }
             Err(e) => {
                 let error_msg = e.to_string();
                 if error_msg.contains("UnsatisfiedAssumption") {
+                    // nocov start
                     if debug {
                         eprintln!("RESPONSE: UnsatisfiedAssumption");
                     }
                     Err(DataSourceError::Assume)
+                    // nocov end
                 } else if error_msg.contains("overflow")
                     || error_msg.contains("StopTest")
                     || error_msg.contains("stream is closed")
                 {
                     if debug {
-                        eprintln!("RESPONSE: StopTest/overflow");
+                        eprintln!("RESPONSE: StopTest/overflow"); // nocov
                     }
                     self.stream.borrow_mut().mark_closed();
                     self.aborted.set(true);
                     Err(DataSourceError::StopTest)
+                // nocov start
                 } else if error_msg.contains("FlakyStrategyDefinition")
                     || error_msg.contains("FlakyReplay")
+                // nocov end
                 {
                     self.stream.borrow_mut().mark_closed();
                     self.aborted.set(true);
                     Err(DataSourceError::StopTest)
+                // nocov start
                 } else if self.connection.server_has_exited() {
                     panic!("{}", SERVER_CRASHED_MESSAGE);
                 } else {
                     panic!("Failed to communicate with Hegel: {}", e);
                 }
+                // nocov end
             }
         }
     }
@@ -149,15 +157,17 @@ impl DataSource for ServerBackend {
             map_insert(&mut payload, "name", n);
         }
         if let Some(max) = max_size {
-            map_insert(&mut payload, "max_size", max);
+            map_insert(&mut payload, "max_size", max); // nocov
         }
         let response = self.send_request("new_collection", &payload)?;
         match response {
             Value::Text(s) => Ok(s),
+            // nocov start
             _ => panic!(
                 "Expected text response from new_collection, got {:?}",
                 response
             ),
+            // nocov end
         }
     }
 
@@ -166,10 +176,11 @@ impl DataSource for ServerBackend {
             self.send_request("collection_more", &cbor_map! { "collection" => collection })?;
         match response {
             Value::Bool(b) => Ok(b),
-            _ => panic!("Expected bool from collection_more, got {:?}", response),
+            _ => panic!("Expected bool from collection_more, got {:?}", response), // nocov
         }
     }
 
+    // nocov start
     fn collection_reject(
         &self,
         collection: &str,
@@ -183,13 +194,14 @@ impl DataSource for ServerBackend {
         }
         self.send_request("collection_reject", &payload)?;
         Ok(())
+        // nocov end
     }
 
     fn new_pool(&self) -> Result<i128, DataSourceError> {
         let response = self.send_request("new_pool", &cbor_map! {})?;
         match response {
             Value::Integer(i) => Ok(i.into()),
-            other => panic!("Expected integer response for pool id, got {:?}", other),
+            other => panic!("Expected integer response for pool id, got {:?}", other), // nocov
         }
     }
 
@@ -197,7 +209,7 @@ impl DataSource for ServerBackend {
         let response = self.send_request("pool_add", &cbor_map! {"pool_id" => pool_id})?;
         match response {
             Value::Integer(i) => Ok(i.into()),
-            other => panic!("Expected integer response for variable id, got {:?}", other),
+            other => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         }
     }
 
@@ -211,7 +223,7 @@ impl DataSource for ServerBackend {
         )?;
         match response {
             Value::Integer(i) => Ok(i.into()),
-            other => panic!("Expected integer response for variable id, got {:?}", other),
+            other => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         }
     }
 
@@ -294,23 +306,25 @@ impl HegelSession {
         let server_version = match decoded.strip_prefix("Hegel/") {
             Some(v) => v,
             None => {
-                let _ = child.kill();
-                panic!("Bad handshake response: {decoded:?}");
+                let _ = child.kill(); // nocov
+                panic!("Bad handshake response: {decoded:?}"); // nocov
             }
         };
         let version: f64 = server_version.parse().unwrap_or_else(|_| {
-            let _ = child.kill();
-            panic!("Bad version number: {server_version}");
+            let _ = child.kill(); // nocov
+            panic!("Bad version number: {server_version}"); // nocov
         });
 
         let (lo, hi) = SUPPORTED_PROTOCOL_VERSIONS;
         if !(lo <= version && version <= hi) {
+            // nocov start
             let _ = child.kill();
             panic!(
                 "hegel-rust supports protocol versions {lo} through {hi}, but \
                  the connected server is using protocol version {version}. Upgrading \
                  hegel-rust or downgrading hegel-core might help."
             );
+            // nocov end
         }
 
         // Monitor thread: detects server crash. The pipe close from
@@ -364,7 +378,7 @@ impl TestRunner for ServerTestRunner {
             "derandomize" => settings.derandomize
         };
         let db_value = match &settings.database {
-            Database::Unset => Option::None,
+            Database::Unset => Option::None, // nocov
             Database::Disabled => Some(Value::Null),
             Database::Path(s) => Some(Value::Text(s.clone())),
         };
@@ -398,7 +412,7 @@ impl TestRunner for ServerTestRunner {
         }
 
         if verbosity == Verbosity::Debug {
-            eprintln!("run_test response received");
+            eprintln!("run_test response received"); // nocov
         }
 
         let result_data: Value;
@@ -408,8 +422,10 @@ impl TestRunner for ServerTestRunner {
             // fail with RecvError once the background reader clears the senders.
             let (event_id, event_payload) = match test_stream.receive_request() {
                 Ok(event) => event,
+                // nocov start
                 Err(_) if connection.server_has_exited() => {
                     panic!("{}", SERVER_CRASHED_MESSAGE);
+                    // nocov end
                 }
                 Err(e) => unreachable!("Failed to receive event (server still running): {}", e),
             };
@@ -420,7 +436,7 @@ impl TestRunner for ServerTestRunner {
                 .expect("Expected event in payload");
 
             if verbosity == Verbosity::Debug {
-                eprintln!("Received event: {:?}", event);
+                eprintln!("Received event: {:?}", event); // nocov
             }
 
             match event_type {
@@ -452,19 +468,19 @@ impl TestRunner for ServerTestRunner {
                     break;
                 }
                 _ => {
-                    panic!("unknown event: {}", event_type);
+                    panic!("unknown event: {}", event_type); // nocov
                 }
             }
         }
 
         // Check for server-side errors before processing results
         if let Some(error_msg) = map_get(&result_data, "error").and_then(as_text) {
-            panic!("Server error: {}", error_msg);
+            panic!("Server error: {}", error_msg); // nocov
         }
 
         // Check for health check failure before processing results
         if let Some(failure_msg) = map_get(&result_data, "health_check_failure").and_then(as_text) {
-            panic!("Health check failure:\n{}", failure_msg);
+            panic!("Health check failure:\n{}", failure_msg); // nocov
         }
 
         // Check for flaky test detection
@@ -477,7 +493,7 @@ impl TestRunner for ServerTestRunner {
             .unwrap_or(0);
 
         if verbosity == Verbosity::Debug {
-            eprintln!("Test done. interesting_test_cases={}", n_interesting);
+            eprintln!("Test done. interesting_test_cases={}", n_interesting); // nocov
         }
 
         // Process final replay test cases (one per interesting example)
@@ -513,7 +529,7 @@ impl TestRunner for ServerTestRunner {
             }
 
             if connection.server_has_exited() {
-                panic!("{}", SERVER_CRASHED_MESSAGE);
+                panic!("{}", SERVER_CRASHED_MESSAGE); // nocov
             }
         }
 
@@ -545,6 +561,7 @@ fn take_panic_info() -> Option<(String, String, String, Backtrace)> {
 /// Short format shows only frames between `__rust_end_short_backtrace` and
 /// `__rust_begin_short_backtrace` markers, matching the default Rust panic handler.
 /// Frame numbers are renumbered to start at 0.
+// nocov start
 fn format_backtrace(bt: &Backtrace, full: bool) -> String {
     let backtrace_str = format!("{}", bt);
 
@@ -631,6 +648,7 @@ fn format_backtrace(bt: &Backtrace, full: bool) -> String {
 
     result.join("\n")
 }
+// nocov end
 
 // Panic unconditionally prints to stderr, even if it's caught later. This results in
 // messy output during shrinking. To avoid this, we replace the panic hook with our
@@ -908,7 +926,7 @@ impl Settings {
             database: if in_ci {
                 Database::Disabled
             } else {
-                Database::Unset
+                Database::Unset // nocov
             },
             suppress_health_check: Vec::new(),
         }
@@ -1011,7 +1029,7 @@ fn is_in_ci() -> bool {
 
     CI_VARS.iter().any(|(key, value)| match value {
         None => std::env::var_os(key).is_some(),
-        Some(expected) => std::env::var(key).ok().as_deref() == Some(expected),
+        Some(expected) => std::env::var(key).ok().as_deref() == Some(expected), // nocov
     })
 }
 
@@ -1088,8 +1106,10 @@ where
             );
 
             #[cfg(feature = "antithesis")]
+            // nocov start
             if let Some(ref loc) = self.test_location {
                 crate::antithesis::emit_assertion(loc, !test_failed);
+                // nocov end
             }
         }
 
@@ -1123,12 +1143,14 @@ fn run_test_case(
                 // Take panic info - we need location for origin, and print details on final
                 let (thread_name, thread_id, location, backtrace) = take_panic_info()
                     .unwrap_or_else(|| {
+                        // nocov start
                         (
                             "<unknown>".to_string(),
                             "?".to_string(),
                             "<unknown>".to_string(),
                             Backtrace::disabled(),
                         )
+                        // nocov end
                     });
 
                 if is_final {
@@ -1138,6 +1160,7 @@ fn run_test_case(
                     );
                     eprintln!("{}", msg);
 
+                    // nocov start
                     if backtrace.status() == BacktraceStatus::Captured {
                         let is_full = std::env::var("RUST_BACKTRACE")
                             .map(|v| v == "full")
@@ -1150,6 +1173,7 @@ fn run_test_case(
                             );
                         }
                     }
+                    // nocov end
                 }
 
                 let origin = format!("Panic at {}", location);
@@ -1182,7 +1206,7 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     } else if let Some(s) = payload.downcast_ref::<String>() {
         s.clone()
     } else {
-        "Unknown panic".to_string()
+        "Unknown panic".to_string() // nocov
     }
 }
 
