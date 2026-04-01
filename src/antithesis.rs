@@ -1,6 +1,6 @@
 use std::path::Path;
 
-// This file provides functionality for running Hegel inside of Antithesis. It reuires the `antithesis` feature to be enabled.
+// This file provides functionality for running Hegel inside of Antithesis. It requires the `antithesis` feature to be enabled.
 //
 // Antithesis will never be required to use Hegel. This functionality is only to provide a better user experience when
 // Hegel happens to be run inside of Antithesis.
@@ -14,6 +14,7 @@ pub struct TestLocation {
 
 pub(crate) fn is_running_in_antithesis() -> bool {
     match std::env::var("ANTITHESIS_OUTPUT_DIR") {
+        // nocov start
         Ok(output_dir) => {
             assert!(
                 Path::new(&output_dir).exists(),
@@ -21,10 +22,12 @@ pub(crate) fn is_running_in_antithesis() -> bool {
             );
             true
         }
+        // nocov end
         Err(_) => false,
     }
 }
 
+// nocov start
 #[cfg(feature = "antithesis")]
 pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
     use std::fs::OpenOptions;
@@ -82,3 +85,4 @@ pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
     writeln!(file, "{}", serde_json::to_string(&declaration).unwrap()).unwrap();
     writeln!(file, "{}", serde_json::to_string(&evaluation).unwrap()).unwrap();
 }
+// nocov end

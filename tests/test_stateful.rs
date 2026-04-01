@@ -2,7 +2,7 @@ mod common;
 
 use common::project::TempRustProject;
 use hegel::TestCase;
-use hegel::generators::{integers, vecs};
+use hegel::generators as gs;
 use hegel::stateful::{Variables, variables};
 
 #[test]
@@ -41,7 +41,7 @@ impl Linear {
     }
 
     #[invariant]
-    fn upper_bound(&self, _tc: TestCase) {
+    fn upper_bound(&mut self, _tc: TestCase) {
         assert!(self.state < 4);
     }
 }
@@ -78,8 +78,8 @@ impl TestConsumeMachine {
 
 #[hegel::test]
 fn test_consume(tc: TestCase) {
-    let ints = integers::<i32>;
-    let elements = tc.draw(vecs(ints()).unique(true));
+    let ints = gs::integers::<i32>;
+    let elements = tc.draw(gs::vecs(ints()).unique(true));
     tc.assume(!elements.is_empty());
     let mut bundle = variables(&tc);
     for element in elements.clone() {
@@ -89,6 +89,87 @@ fn test_consume(tc: TestCase) {
     let m = TestConsumeMachine {
         numbers: bundle,
         consumed,
+    };
+    hegel::stateful::run(m, tc);
+}
+
+#[test]
+fn test_cfg_attributes_are_copied_to_rules() {
+    // see https://github.com/hegeldev/hegel-rust/issues/151
+    let code = r#"
+use hegel::TestCase;
+
+struct A {
+    count: u32,
+}
+
+#[hegel::state_machine]
+impl A {
+    #[rule]
+    fn increment(&mut self, _tc: TestCase) {
+        self.count += 1;
+    }
+
+    #[cfg(nonexistent_config)]
+    #[rule]
+    fn f1(&mut self, _tc: TestCase) {
+        compile_error!("should be compiled out");
+    }
+
+    #[cfg(nonexistent_config)]
+    #[invariant]
+    fn f2(&mut self, _tc: TestCase) {
+        compile_error!("should be compiled out");
+    }
+}
+
+#[hegel::test]
+fn test_a(tc: TestCase) {
+    let m = A { count: 0 };
+    hegel::stateful::run(m, tc);
+}
+
+fn main() {}
+"#;
+
+    TempRustProject::new().main_file(code).cargo_test(&[]);
+}
+
+struct TestLifetimeMachine<'a> {
+    data: &'a [i32],
+}
+
+#[hegel::state_machine]
+impl<'a> TestLifetimeMachine<'a> {
+    #[rule]
+    fn f(&mut self, _tc: TestCase) {
+        assert!(!self.data.is_empty());
+    }
+}
+
+#[hegel::test]
+fn test_state_machine_with_lifetime(tc: TestCase) {
+    let data = vec![1, 2, 3];
+    let m = TestLifetimeMachine { data: &data };
+    hegel::stateful::run(m, tc);
+}
+
+struct GenericMachine<T> {
+    values: Vec<T>,
+}
+
+#[hegel::state_machine]
+impl<T: std::fmt::Debug> GenericMachine<T> {
+    #[rule]
+    fn check(&mut self, _tc: TestCase) {
+        let _ = self.values.len();
+    }
+}
+
+#[hegel::test]
+fn test_state_machine_with_type_parameter(tc: TestCase) {
+    let m = GenericMachine {
+        values: vec![1, 2, 3],
     };
     hegel::stateful::run(m, tc);
 }
@@ -110,8 +191,8 @@ impl TestDrawDomainMachine {
 
 #[hegel::test]
 fn test_draw_domain(tc: TestCase) {
-    let ints = integers::<i32>;
-    let elements = tc.draw(vecs(ints()));
+    let ints = gs::integers::<i32>;
+    let elements = tc.draw(gs::vecs(ints()));
     tc.assume(!elements.is_empty());
     let mut bundle = variables(&tc);
     for element in elements.clone() {

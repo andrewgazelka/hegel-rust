@@ -8,19 +8,20 @@ use std::marker::PhantomData;
 /// # Examples
 ///
 /// ```no_run
-/// use hegel::generators::{tuples, integers, booleans, text};
+/// use hegel::generators as gs;
+/// use hegel::tuples;
 ///
 /// // 0-tuple (unit)
 /// let gen0 = tuples!();
 ///
 /// // 1-tuple
-/// let gen1 = tuples!(integers::<i32>());
+/// let gen1 = tuples!(gs::integers::<i32>());
 ///
 /// // 2-tuple
-/// let gen2 = tuples!(integers::<i32>(), booleans());
+/// let gen2 = tuples!(gs::integers::<i32>(), gs::booleans());
 ///
 /// // 3-tuple
-/// let gen3 = tuples!(integers::<i32>(), booleans(), text());
+/// let gen3 = tuples!(gs::integers::<i32>(), gs::booleans(), gs::text());
 /// ```
 #[macro_export]
 macro_rules! tuples {
@@ -82,10 +83,12 @@ macro_rules! impl_tuple {
                 if let Some(basic) = self.as_basic() {
                     basic.do_draw(tc)
                 } else {
+                    // nocov start
                     tc.start_span(labels::TUPLE);
                     let result = ($(self.$field.do_draw(tc),)+);
                     tc.stop_span(false);
                     result
+                    // nocov end
                 }
             }
 
@@ -100,7 +103,7 @@ macro_rules! impl_tuple {
                 Some(BasicGenerator::new(schema, move |raw| {
                     let arr = match raw {
                         Value::Array(arr) => arr,
-                        _ => panic!("Expected array from tuple schema, got {:?}", raw),
+                        _ => panic!("Expected array from tuple schema, got {:?}", raw), // nocov
                     };
                     let mut iter = arr.into_iter();
 

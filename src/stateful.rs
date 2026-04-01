@@ -11,7 +11,7 @@
 //! Example:
 //! ```rust
 //! use hegel::TestCase;
-//! use hegel::generators::integers;
+//! use hegel::generators as gs;
 //!
 //! struct IntegerStack {
 //!     stack: Vec<i32>,
@@ -21,7 +21,7 @@
 //! impl IntegerStack {
 //!     #[rule]
 //!     fn push(&mut self, tc: TestCase) {
-//!         let integers = integers::<i32>;
+//!         let integers = gs::integers::<i32>;
 //!         let element = tc.draw(integers());
 //!         self.stack.push(element);
 //!     }
@@ -33,7 +33,7 @@
 //!
 //!     #[rule]
 //!     fn pop_push(&mut self, tc: TestCase) {
-//!         let integers = integers::<i32>;
+//!         let integers = gs::integers::<i32>;
 //!         let element = tc.draw(integers());
 //!         let initial = self.stack.clone();
 //!         self.stack.push(element);
@@ -85,22 +85,6 @@ impl<M> Rule<M> {
     }
 }
 
-/// An invariant that is checked after each successful rule application.
-pub struct Invariant<M: ?Sized> {
-    pub name: String,
-    pub check: fn(&M, TestCase),
-}
-
-impl<M> Invariant<M> {
-    /// Create a new invariant with a name and a check function.
-    pub fn new(name: &str, check: fn(&M, TestCase)) -> Self {
-        Invariant {
-            name: name.to_string(),
-            check,
-        }
-    }
-}
-
 /// A pool of previously generated values.
 pub struct Variables<T> {
     pool_id: i128,
@@ -121,7 +105,7 @@ impl<T> Variables<T> {
             Err(_) => {
                 panic!("{}", STOP_TEST_STRING);
             }
-            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other),
+            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         }
     }
 
@@ -138,12 +122,12 @@ impl<T> Variables<T> {
         {
             Ok(Value::Integer(i)) => i.into(),
             Err(_) => {
-                panic!("{}", STOP_TEST_STRING);
+                panic!("{}", STOP_TEST_STRING); // nocov
             }
-            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other),
+            Ok(other) => panic!("Expected integer response for variable id, got {:?}", other), // nocov
         };
         if self.values.contains_key(&variable_id) {
-            panic!("unexpected variable id in map");
+            panic!("unexpected variable id in map"); // nocov
         }
         self.values.insert(variable_id, v);
     }
@@ -172,9 +156,9 @@ pub fn variables<T>(tc: &TestCase) -> Variables<T> {
     let pool_id = match tc.send_request("new_pool", &cbor_map! {}) {
         Ok(Value::Integer(i)) => i.into(),
         Err(_) => {
-            panic!("{}", STOP_TEST_STRING);
+            panic!("{}", STOP_TEST_STRING); // nocov
         }
-        Ok(other) => panic!("Expected integer response for pool id, got {:?}", other),
+        Ok(other) => panic!("Expected integer response for pool id, got {:?}", other), // nocov
     };
     Variables {
         pool_id,
@@ -192,25 +176,25 @@ pub trait StateMachine {
     /// The rules (actions) that can be applied to this state machine.
     fn rules(&self) -> Vec<Rule<Self>>;
     /// Invariants checked after each successful rule application.
-    fn invariants(&self) -> Vec<Invariant<Self>>;
+    fn invariants(&self) -> Vec<Rule<Self>>;
 }
 
 // TODO: factor out (shared with runner.rs)
 fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
-        s.to_string()
+        s.to_string() // nocov
     } else if let Some(s) = payload.downcast_ref::<String>() {
         s.clone()
     } else {
-        "Unknown panic".to_string()
+        "Unknown panic".to_string() // nocov
     }
 }
 
-fn check_invariants(m: &impl StateMachine, tc: &TestCase) {
+fn check_invariants(m: &mut impl StateMachine, tc: &TestCase) {
     let invariants = m.invariants();
     for invariant in invariants {
-        let inv_tc = tc.child(2);
-        (invariant.check)(m, inv_tc);
+        let inv_tc = tc.child(2); // nocov
+        (invariant.apply)(m, inv_tc); // nocov
     }
 }
 
@@ -218,13 +202,13 @@ fn check_invariants(m: &impl StateMachine, tc: &TestCase) {
 pub fn run(mut m: impl StateMachine, tc: TestCase) {
     let rules = m.rules();
     if rules.is_empty() {
-        panic!("Cannot run a machine with no rules.");
+        panic!("Cannot run a machine with no rules."); // nocov
     }
 
     let rule_index = integers::<usize>().min_value(0).max_value(rules.len() - 1);
 
     tc.note("Initial invariant check.");
-    check_invariants(&m, &tc);
+    check_invariants(&mut m, &tc);
 
     // We generate an unbounded integer as the step cap that hypothesis actually sees. This means
     // we almost always run the maximum amount of steps, but allows us the possibility of shrinking
@@ -254,7 +238,7 @@ pub fn run(mut m: impl StateMachine, tc: TestCase) {
         match result {
             Ok(()) => {
                 steps_run_successfully += 1;
-                check_invariants(&m, &tc);
+                check_invariants(&mut m, &tc);
             }
             Err(e) => {
                 let msg = panic_message(&e);
