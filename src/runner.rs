@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
 const SUPPORTED_PROTOCOL_VERSIONS: (f64, f64) = (0.6, 0.7);
-const HEGEL_SERVER_VERSION: &str = "0.2.3";
+const HEGEL_SERVER_VERSION: &str = "0.3.0";
 const HEGEL_SERVER_COMMAND_ENV: &str = "HEGEL_SERVER_COMMAND";
 const HEGEL_SERVER_DIR: &str = ".hegel";
 static SERVER_LOG_FILE: std::sync::OnceLock<Mutex<File>> = std::sync::OnceLock::new();
