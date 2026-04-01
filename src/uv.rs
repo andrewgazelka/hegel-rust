@@ -286,6 +286,24 @@ mod tests {
     }
 
     #[test]
+    fn test_all_supported_platforms_have_sha256() {
+        for arch in ARCHES {
+            for os in OSES {
+                let name = archive_name_for(arch, os).unwrap();
+                assert!(
+                    expected_sha256(&name).is_some(),
+                    "no SHA-256 checksum for {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_expected_sha256_returns_none_for_unknown() {
+        assert!(expected_sha256("uv-unknown.tar.gz").is_none());
+    }
+
+    #[test]
     fn test_unsupported_platform_returns_error() {
         let err = archive_name_for("mips", "freebsd").unwrap_err();
         assert!(err.contains("Unsupported platform: mips-freebsd"));
