@@ -164,31 +164,27 @@ mod tests {
         "uv-x86_64-unknown-linux-musl.tar.gz",
     ];
 
-    /// The (arch, os) pairs that archive_name_for supports, using the values
-    /// that std::env::consts::{ARCH, OS} would return on those platforms.
-    const SUPPORTED_PLATFORMS: &[(&str, &str)] = &[
-        ("aarch64", "macos"),
-        ("x86_64", "macos"),
-        ("aarch64", "linux"),
-        ("x86_64", "linux"),
-    ];
+    const ARCHES: &[&str] = &["aarch64", "x86_64"];
+    const OSES: &[&str] = &["macos", "linux"];
 
     #[test]
     fn test_all_supported_platforms_have_real_release_archives() {
-        for &(arch, os) in SUPPORTED_PLATFORMS {
-            let name = archive_name_for(arch, os).unwrap();
-            assert!(
-                UV_RELEASE_ARCHIVES.contains(&name.as_str()),
-                "archive_name_for({arch:?}, {os:?}) = {name:?} is not in the uv release"
-            );
+        for arch in ARCHES {
+            for os in OSES {
+                let name = archive_name_for(arch, os).unwrap();
+                assert!(
+                    UV_RELEASE_ARCHIVES.contains(&name.as_str()),
+                    "archive_name_for({arch:?}, {os:?}) = {name:?} is not in the uv release"
+                );
+            }
         }
     }
 
     #[test]
     fn test_all_release_archives_are_covered() {
-        let supported: Vec<String> = SUPPORTED_PLATFORMS
+        let supported: Vec<String> = ARCHES
             .iter()
-            .map(|&(arch, os)| archive_name_for(arch, os).unwrap())
+            .flat_map(|arch| OSES.iter().map(move |os| archive_name_for(arch, os).unwrap()))
             .collect();
 
         let uncovered: Vec<&&str> = UV_RELEASE_ARCHIVES
