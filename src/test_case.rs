@@ -257,7 +257,9 @@ impl TestCase {
         match global.named_draw_repeatable.get(name) {
             Some(&prev) if prev != repeatable => {
                 panic!(
-                    "draw_named: name {:?} used with inconsistent repeatable flag (was {}, now {})",
+                    "draw_named: name {:?} used with inconsistent repeatable flag (was {}, now {}). \
+                    If you have not called draw_named deliberately yourself, this is likely a bug in \
+                    hegel. Please file a bug report at https://github.com/hegeldev/hegel-rust/issues",
                     name, prev, repeatable
                 );
             }
@@ -278,7 +280,9 @@ impl TestCase {
 
         if !repeatable && current_count > 1 {
             panic!(
-                "draw_named: name {:?} used more than once but repeatable is false",
+                "draw_named: name {:?} used more than once but repeatable is false. \
+                If you have not called draw_named deliberately yourself, this is likely a bug in \
+                hegel. Please file a bug report at https://github.com/hegeldev/hegel-rust/issues",
                 name
             );
         }
