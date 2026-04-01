@@ -15,7 +15,7 @@ description: "Create a pull request for the current branch. Use this whenever yo
    git rebase origin/main
    ```
 
-3. Check if `RELEASE.md` exists. If source code was changed and there is no `RELEASE.md`, create one following `RELEASE-sample.md` and `.claude/changelog-guidance.md`.
+3. Check if `RELEASE.md` exists. If source code was changed and there is no `RELEASE.md`, create one following `RELEASE-sample.md` and `references/changelog-guidance.md`.
 
 4. Review `git diff origin/main...HEAD` to understand the full scope of changes. Write the PR content based on this, not just the latest commit.
 
