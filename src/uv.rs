@@ -95,12 +95,7 @@ fn download_url_to_cache(url: &str, archive_name: &str, cache: &Path) -> Result<
         .arg(&archive_path)
         .arg(url)
         .output()
-        .map_err(|e| {
-            format!(
-                "Failed to run curl to download uv: {e}. \
-                 Install uv manually: https://docs.astral.sh/uv/getting-started/installation/"
-            )
-        })?;
+        .map_err(|e| format!("Failed to run curl to download uv: {e}. Install uv manually: https://docs.astral.sh/uv/getting-started/installation/"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
