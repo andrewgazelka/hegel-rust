@@ -136,12 +136,7 @@ hegeltest = {{ path = "{path}"{features} }}
         let mut cmd = Command::new(env!("CARGO"));
         cmd.args(args)
             .current_dir(&self.project_path)
-            .env("CARGO_TARGET_DIR", cached_target)
-            // Remove HEGEL_SERVER_COMMAND so that child processes use the default
-            // hegel binary, not whatever the parent environment has set (e.g. the
-            // test-min-protocol CI job). Tests that need a specific server command
-            // set it explicitly via `.env()`, which runs after this removal.
-            .env_remove("HEGEL_SERVER_COMMAND");
+            .env("CARGO_TARGET_DIR", cached_target);
 
         for key in &self.env_removes {
             cmd.env_remove(key);
