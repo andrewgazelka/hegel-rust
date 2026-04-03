@@ -124,15 +124,11 @@ jobs:
           echo "min_core=$MIN_CORE" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with minimum protocol version
-        run: | # zizmor: ignore[template-injection]
-          # Create a wrapper script that invokes hegel via uv with the old version
-          cat > /tmp/hegel-min << 'WRAPPER'
-          #!/bin/bash
-          exec uv tool run --from "hegel-core==$MIN_CORE" hegel "$@"
-          WRAPPER
-          sed -i "s/\$MIN_CORE/${{ steps.min-version.outputs.min_core }}/" /tmp/hegel-min
-          chmod +x /tmp/hegel-min
-          HEGEL_SERVER_COMMAND=/tmp/hegel-min just check-tests
+        env:
+          MIN_CORE: ${{ steps.min-version.outputs.min_core }}
+        run: |
+          uv tool install "hegel-core==$MIN_CORE"
+          HEGEL_SERVER_COMMAND=$(which hegel) just check-tests
 
   docs:
     name: docs
