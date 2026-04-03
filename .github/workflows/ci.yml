@@ -124,7 +124,7 @@ jobs:
           echo "min_core=$MIN_CORE" >> "$GITHUB_OUTPUT"
 
       - name: Run tests with minimum protocol version
-        run: |
+        run: | # zizmor: ignore[template-injection]
           # Create a wrapper script that invokes hegel via uv with the old version
           cat > /tmp/hegel-min << 'WRAPPER'
           #!/bin/bash
