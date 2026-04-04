@@ -117,6 +117,10 @@ fn test_internal_error_output_with_backtrace() {
     let closure_name = r"(?:\{closure#0\}|\{\{closure\}\})";
     assert_matches_regex(
         &output.stderr,
+        // Backtrace frame names vary between platforms — macOS stable shows
+        // generic params (IntegerGenerator<T>) while Linux shows monomorphized
+        // types (IntegerGenerator<i32>), and the leading `<` wrapper differs too.
+        // We match the function name loosely to handle both.
         &format!(
             concat!(
                 r"(?s)",
@@ -128,26 +132,26 @@ fn test_internal_error_output_with_backtrace() {
                 r"\n",
                 // original backtrace from the actual panic site
                 r"original backtrace:\n",
-                r"\s+0: .*\n",
+                r"\s+0: .*\n",                                              // frame 0: panic machinery
                 r".*",
-                r"\s+1: core::panicking::panic_fmt\n",
+                r"\s+1: core::panicking::panic_fmt\n",                      // frame 1: panic_fmt
                 r".*",
-                r"\s+2: hegel::generators::numeric::IntegerGenerator<T>::build_schema\n",
+                r"\s+\d+: .*IntegerGenerator.*>::build_schema\n",           // build_schema
                 r".*",
-                r"Generator<T>>::do_draw\n",
+                r"IntegerGenerator.*>::do_draw\n",                          // do_draw
                 r".*",
-                r"hegel::test_case::TestCase::draw\n",
+                r"TestCase.*::draw\n",                                       // draw
                 r".*",
-                r"temp_hegel_test_\d+::main::{closure_name}\n",
+                r"temp_hegel_test_\d+::main::{closure_name}\n",            // user's closure
                 r".*",
-                r"hegel::runner::run_test_case",
+                r"hegel::runner::run_test_case",                            // hegel runner internals
                 r".*",
-                r"temp_hegel_test_\d+::main\n",
+                r"temp_hegel_test_\d+::main\n",                            // user's main
                 r".*",
                 // re-panic backtrace from default handler
                 r"\nstack backtrace:\n",
                 r".*",
-                r"hegel::runner::Hegel<F>::run\n",
+                r"Hegel.*>::run\n",                                         // re-panic site
                 r".*",
                 r"note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace\.",
             ),

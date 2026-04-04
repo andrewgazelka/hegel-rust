@@ -91,7 +91,7 @@ pub(crate) enum Database {
 
 /// Configuration for a Hegel test run.
 ///
-/// Use builder methods to customize, then pass to [`Hegel::settings`] or
+/// Use builder methods to customize, then pass to [`crate::Hegel::settings`] or
 /// the `settings` parameter of `#[hegel::test]`.
 ///
 /// In CI environments (detected automatically), the database is disabled
