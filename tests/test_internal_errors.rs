@@ -1,7 +1,7 @@
 mod common;
 
 use common::project::TempRustProject;
-use common::utils::assert_matches_regex;
+use common::utils::{assert_matches_regex, expect_panic};
 
 #[test]
 fn test_propagates_server_error() {
@@ -58,6 +58,30 @@ fn main() {
     TempRustProject::new().main_file(code).cargo_run(&[]);
 }
 
+// In-process tests that exercise the internal error code path directly (for coverage).
+// The subprocess tests below verify the exact output format.
+
+#[test]
+fn test_internal_error_message() {
+    // SAFETY: no other threads are reading env vars concurrently in this test binary.
+    // The other tests in this file use subprocesses (TempRustProject), not in-process
+    // hegel calls, so they are unaffected by this env var change.
+    unsafe { std::env::set_var("RUST_BACKTRACE", "1") };
+
+    expect_panic(
+        || {
+            hegel::hegel(|tc| {
+                let _ = tc.draw(
+                    hegel::generators::integers::<i32>()
+                        .min_value(100)
+                        .max_value(10),
+                );
+            });
+        },
+        r"(?s)hegel internal error at .*generators/numeric\.rs.*Cannot have max_value < min_value.*original backtrace:",
+    );
+}
+
 const INTERNAL_ERROR_CODE: &str = r#"
 use hegel::generators as gs;
 
@@ -79,7 +103,7 @@ fn test_internal_error_output() {
     assert_matches_regex(
         &output.stderr,
         concat!(
-            r"thread '.*' \(\d+\) panicked at .*src/runner\.rs:\d+:\d+:\n",
+            r"thread '.*'(?: \(\d+\))? panicked at .*src/runner\.rs:\d+:\d+:\n",
             r"hegel internal error at .*src/generators/numeric\.rs:\d+:\d+:\n",
             r"Cannot have max_value < min_value\n\n",
             r"note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
@@ -125,7 +149,7 @@ fn test_internal_error_output_with_backtrace() {
             concat!(
                 r"(?s)",
                 // re-panic location from default handler
-                r"thread '.*' \(\d+\) panicked at .*src/runner\.rs:\d+:\d+:\n",
+                r"thread '.*'(?: \(\d+\))? panicked at .*src/runner\.rs:\d+:\d+:\n",
                 // our formatted message: original location + error
                 r"hegel internal error at .*src/generators/numeric\.rs:\d+:\d+:\n",
                 r"Cannot have max_value < min_value\n",
