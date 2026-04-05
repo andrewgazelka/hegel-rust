@@ -8,18 +8,11 @@ use std::env;
 struct Params {
     min_size: usize,
     max_size: Option<usize>,
-    codec: Option<String>,
-    min_codepoint: Option<u32>,
-    max_codepoint: Option<u32>,
-    categories: Option<Vec<String>>,
-    exclude_categories: Option<Vec<String>>,
-    include_characters: Option<String>,
-    exclude_characters: Option<String>,
 }
 
 #[derive(Serialize)]
 struct Metrics {
-    codepoints: Vec<u32>,
+    length: usize,
 }
 
 fn main() {
@@ -39,32 +32,10 @@ fn main() {
         if let Some(max) = params.max_size {
             g = g.max_size(max);
         }
-        if let Some(ref codec) = params.codec {
-            g = g.codec(codec);
-        }
-        if let Some(min_cp) = params.min_codepoint {
-            g = g.min_codepoint(min_cp);
-        }
-        if let Some(max_cp) = params.max_codepoint {
-            g = g.max_codepoint(max_cp);
-        }
-        if let Some(ref cats) = params.categories {
-            let cat_strs: Vec<&str> = cats.iter().map(|s| s.as_str()).collect();
-            g = g.categories(&cat_strs);
-        }
-        if let Some(ref excl_cats) = params.exclude_categories {
-            let cat_strs: Vec<&str> = excl_cats.iter().map(|s| s.as_str()).collect();
-            g = g.exclude_categories(&cat_strs);
-        }
-        if let Some(ref incl) = params.include_characters {
-            g = g.include_characters(incl);
-        }
-        if let Some(ref excl) = params.exclude_characters {
-            g = g.exclude_characters(excl);
-        }
         let value = tc.draw(g);
-        let codepoints: Vec<u32> = value.chars().map(|c| c as u32).collect();
-        write(&Metrics { codepoints });
+        // Report length in Unicode codepoints, not bytes
+        let length = value.chars().count();
+        write(&Metrics { length });
     })
     .settings(Settings::new().test_cases(get_test_cases()))
     .run();
