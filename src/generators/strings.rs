@@ -297,11 +297,9 @@ pub struct RegexGenerator {
 
 impl RegexGenerator {
     /// Set whether the entire string must match the pattern, not just contain a match.
-    // nocov start
     pub fn fullmatch(mut self, fullmatch: bool) -> Self {
         self.fullmatch = fullmatch;
         self
-        // nocov end
     }
 
     /// Constrain which characters may appear in generated strings.
