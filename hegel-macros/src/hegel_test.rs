@@ -63,6 +63,10 @@ impl Parse for TestArgs {
 }
 
 /// Extract a simple identifier from a pattern, handling type annotations.
+///
+/// - tc -> Some("tc")
+/// - tc: TestCase -> Some("tc")
+/// - (a, b) -> None
 fn extract_ident_from_pat(pat: &Pat) -> Option<String> {
     match pat {
         Pat::Ident(pat_ident) => Some(pat_ident.ident.to_string()),
@@ -71,8 +75,8 @@ fn extract_ident_from_pat(pat: &Pat) -> Option<String> {
     }
 }
 
-/// Check if a `let` binding is of the form `let <ident> = <tc_ident>.draw(<one_arg>)`.
-fn is_tc_draw_binding(node: &syn::Local, tc_ident: &str) -> Option<String> {
+/// Check if a `let` binding is of the form `let <ident> = <test_case_ident>.draw(<one_arg>)`.
+fn is_test_case_draw_binding(node: &syn::Local, test_case_ident: &str) -> Option<String> {
     let var_name = extract_ident_from_pat(&node.pat)?;
 
     let init = node.init.as_ref()?;
@@ -86,7 +90,7 @@ fn is_tc_draw_binding(node: &syn::Local, tc_ident: &str) -> Option<String> {
     }
 
     let is_tc = match &*method_call.receiver {
-        Expr::Path(path) => path.path.is_ident(tc_ident),
+        Expr::Path(path) => path.path.is_ident(test_case_ident),
         _ => false,
     };
     if !is_tc {
@@ -102,22 +106,22 @@ fn is_tc_draw_binding(node: &syn::Local, tc_ident: &str) -> Option<String> {
 /// ALL uses of that name become repeatable. This ensures the runtime never sees
 /// inconsistent repeatable flags for the same name.
 struct DrawNameCollector {
-    tc_ident: String,
-    repeatable_depth: usize,
+    test_case_ident: String,
+    block_depth: usize,
     name_flags: HashMap<String, bool>,
 }
 
 impl VisitMut for DrawNameCollector {
     fn visit_block_mut(&mut self, node: &mut syn::Block) {
-        self.repeatable_depth += 1;
+        self.block_depth += 1;
         syn::visit_mut::visit_block_mut(self, node);
-        self.repeatable_depth -= 1;
+        self.block_depth -= 1;
     }
 
     fn visit_expr_closure_mut(&mut self, node: &mut syn::ExprClosure) {
-        self.repeatable_depth += 1;
+        self.block_depth += 1;
         syn::visit_mut::visit_expr_closure_mut(self, node);
-        self.repeatable_depth -= 1;
+        self.block_depth -= 1;
     }
 
     fn visit_item_fn_mut(&mut self, _node: &mut syn::ItemFn) {}
@@ -125,8 +129,8 @@ impl VisitMut for DrawNameCollector {
     fn visit_local_mut(&mut self, node: &mut syn::Local) {
         syn::visit_mut::visit_local_mut(self, node);
 
-        if let Some(var_name) = is_tc_draw_binding(node, &self.tc_ident) {
-            let repeatable = self.repeatable_depth > 0;
+        if let Some(var_name) = is_test_case_draw_binding(node, &self.test_case_ident) {
+            let repeatable = self.block_depth > 0 || self.name_flags.contains_key(&var_name);
             let entry = self.name_flags.entry(var_name).or_insert(false);
             if repeatable {
                 *entry = true;
@@ -140,7 +144,7 @@ impl VisitMut for DrawNameCollector {
 /// Uses the pre-computed name_flags from DrawNameCollector so that every use of
 /// a given name gets the same repeatable flag.
 struct DrawRewriter {
-    tc_ident: String,
+    test_case_ident: String,
     name_flags: HashMap<String, bool>,
 }
 
@@ -150,7 +154,7 @@ impl VisitMut for DrawRewriter {
     fn visit_local_mut(&mut self, node: &mut syn::Local) {
         syn::visit_mut::visit_local_mut(self, node);
 
-        let var_name = match is_tc_draw_binding(node, &self.tc_ident) {
+        let var_name = match is_test_case_draw_binding(node, &self.test_case_ident) {
             Some(name) => name,
             None => return,
         };
@@ -238,11 +242,11 @@ pub fn expand_test(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStrea
     // the outermost block doesn't count as a nesting level.
     let body = {
         let mut body = (*func.block).clone();
-        if let Some(tc_name) = extract_ident_from_pat(param_pat) {
+        if let Some(test_case_name) = extract_ident_from_pat(param_pat) {
             // Pass 1: collect names
             let mut collector = DrawNameCollector {
-                tc_ident: tc_name.clone(),
-                repeatable_depth: 0,
+                test_case_ident: test_case_name.clone(),
+                block_depth: 0,
                 name_flags: HashMap::new(),
             };
             for stmt in &mut body.stmts {
@@ -251,7 +255,7 @@ pub fn expand_test(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStrea
 
             // Pass 2: rewrite
             let mut rewriter = DrawRewriter {
-                tc_ident: tc_name,
+                test_case_ident: test_case_name,
                 name_flags: collector.name_flags,
             };
             for stmt in &mut body.stmts {
