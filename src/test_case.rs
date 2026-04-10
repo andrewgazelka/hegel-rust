@@ -1,9 +1,10 @@
 use crate::cbor_utils::{cbor_map, map_insert};
 use crate::generators::Generator;
-use crate::protocol::{Channel, Connection, SERVER_CRASHED_MESSAGE};
+use crate::protocol::{Connection, SERVER_CRASHED_MESSAGE, Stream};
 use crate::runner::Verbosity;
 use ciborium::Value;
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::{Arc, LazyLock};
 
@@ -59,16 +60,18 @@ pub(crate) const STOP_TEST_STRING: &str = "__HEGEL_STOP_TEST";
 pub(crate) struct TestCaseGlobalData {
     #[allow(dead_code)]
     connection: Arc<Connection>,
-    channel: Channel,
+    stream: Stream,
     verbosity: Verbosity,
     is_last_run: bool,
     test_aborted: bool,
+    named_draw_counts: HashMap<String, usize>,
+    named_draw_repeatable: HashMap<String, bool>,
+    allocated_display_names: HashSet<String>,
 }
 
 #[derive(Clone)]
 pub(crate) struct TestCaseLocalData {
     span_depth: usize,
-    draw_count: usize,
     indent: usize,
     on_draw: Rc<dyn Fn(&str)>,
 }
@@ -113,7 +116,7 @@ impl std::fmt::Debug for TestCase {
 impl TestCase {
     pub(crate) fn new(
         connection: Arc<Connection>,
-        channel: Channel,
+        stream: Stream,
         verbosity: Verbosity,
         is_last_run: bool,
     ) -> Self {
@@ -125,14 +128,16 @@ impl TestCase {
         TestCase {
             global: Rc::new(RefCell::new(TestCaseGlobalData {
                 connection,
-                channel,
+                stream,
                 verbosity,
                 is_last_run,
                 test_aborted: false,
+                named_draw_counts: HashMap::new(),
+                named_draw_repeatable: HashMap::new(),
+                allocated_display_names: HashSet::new(),
             })),
             local: RefCell::new(TestCaseLocalData {
                 span_depth: 0,
-                draw_count: 0,
                 indent: 0,
                 on_draw,
             }),
@@ -152,10 +157,36 @@ impl TestCase {
     ///     let s: String = tc.draw(gs::text());
     /// }
     /// ```
+    ///
+    /// Note: when run inside a `#[hegel::test]`, `draw()` will typically be
+    /// rewritten to `__draw_named()` with an appropriate variable name
+    /// in order to give better test output.
     pub fn draw<T: std::fmt::Debug>(&self, generator: impl Generator<T>) -> T {
+        self.__draw_named(generator, "draw", true)
+    }
+
+    /// Draw a value from a generator with a specific name for output.
+    ///
+    /// When `repeatable` is true, a counter suffix is appended (e.g. `x_1`, `x_2`).
+    /// When `repeatable` is false, reusing the same name panics.
+    ///
+    /// Using the same name with different values of `repeatable` is an error.
+    ///
+    /// On the final replay of a failing test case, this prints:
+    /// - `let name = value;` (when not repeatable)
+    /// - `let name_N = value;` (when repeatable)
+    ///
+    /// Not intended for direct use. This is the target that `#[hegel::test]` rewrites `draw()`
+    /// calls to where appropriate.
+    pub fn __draw_named<T: std::fmt::Debug>(
+        &self,
+        generator: impl Generator<T>,
+        name: &str,
+        repeatable: bool,
+    ) -> T {
         let value = generator.do_draw(self);
         if self.local.borrow().span_depth == 0 {
-            self.record_draw(&value);
+            self.record_named_draw(&value, name, repeatable);
         }
         value
     }
@@ -215,22 +246,69 @@ impl TestCase {
             global: self.global.clone(),
             local: RefCell::new(TestCaseLocalData {
                 span_depth: 0,
-                draw_count: 0,
                 indent: local.indent + extra_indent,
                 on_draw: local.on_draw.clone(),
             }),
         }
     }
 
-    fn record_draw<T: std::fmt::Debug>(&self, value: &T) {
-        let mut local = self.local.borrow_mut();
-        local.draw_count += 1;
-        let count = local.draw_count;
+    fn record_named_draw<T: std::fmt::Debug>(&self, value: &T, name: &str, repeatable: bool) {
+        let mut global = self.global.borrow_mut();
+
+        match global.named_draw_repeatable.get(name) {
+            Some(&prev) if prev != repeatable => {
+                panic!(
+                    "__draw_named: name {:?} used with inconsistent repeatable flag (was {}, now {}). \
+                    If you have not called __draw_named deliberately yourself, this is likely a bug in \
+                    hegel. Please file a bug report at https://github.com/hegeldev/hegel-rust/issues",
+                    name, prev, repeatable
+                );
+            }
+            _ => {
+                global
+                    .named_draw_repeatable
+                    .insert(name.to_string(), repeatable);
+            }
+        }
+
+        let count = global
+            .named_draw_counts
+            .entry(name.to_string())
+            .or_insert(0);
+        *count += 1;
+        let current_count = *count;
+
+        if !repeatable && current_count > 1 {
+            panic!(
+                "__draw_named: name {:?} used more than once but repeatable is false. \
+                This is almost certainly a bug in hegel - please report it at https://github.com/hegeldev/hegel-rust/issues",
+                name
+            );
+        }
+
+        let display_name = if repeatable {
+            let mut candidate = current_count;
+            loop {
+                let name = format!("{}_{}", name, candidate);
+                if global.allocated_display_names.insert(name.clone()) {
+                    break name;
+                }
+                candidate += 1;
+            }
+        } else {
+            let name = name.to_string();
+            global.allocated_display_names.insert(name.clone());
+            name
+        };
+        drop(global);
+
+        let local = self.local.borrow();
         let indent = local.indent;
+
         (local.on_draw)(&format!(
-            "{:indent$}Draw {}: {:?}",
+            "{:indent$}let {} = {:?};",
             "",
-            count,
+            display_name,
             value,
             indent = indent
         ));
@@ -269,8 +347,8 @@ impl TestCase {
         let mut global = self.global.borrow_mut();
 
         // If a previous request already triggered overflow/StopTest, the server
-        // has closed this channel. Don't send another request—it would block.
-        // (The channel-level closed check is also enforced, but this gives a
+        // has closed this stream. Don't send another request—it would block.
+        // (The stream-level closed check is also enforced, but this gives a
         // clean StopTestError instead of an io::Error.)
         if global.test_aborted {
             return Err(StopTestError); // nocov
@@ -294,7 +372,7 @@ impl TestCase {
             eprintln!("REQUEST: {:?}", request); // nocov
         }
 
-        let result = global.channel.request_cbor(&request);
+        let result = global.stream.request_cbor(&request);
         drop(global);
 
         match result {
@@ -308,13 +386,13 @@ impl TestCase {
                 let error_msg = e.to_string();
                 if error_msg.contains("overflow")
                     || error_msg.contains("StopTest")
-                    || error_msg.contains("channel is closed")
+                    || error_msg.contains("stream is closed")
                 {
                     if debug {
                         eprintln!("RESPONSE: StopTest/overflow"); // nocov
                     }
                     let mut global = self.global.borrow_mut();
-                    global.channel.mark_closed();
+                    global.stream.mark_closed();
                     global.test_aborted = true;
                     drop(global);
                     Err(StopTestError)
@@ -326,7 +404,7 @@ impl TestCase {
                     // Abort the test case; the server will report the flaky
                     // error in the test_done results, which runner.rs handles.
                     let mut global = self.global.borrow_mut();
-                    global.channel.mark_closed();
+                    global.stream.mark_closed();
                     global.test_aborted = true;
                     drop(global);
                     Err(StopTestError)
@@ -349,8 +427,8 @@ impl TestCase {
 
     pub(crate) fn send_mark_complete(&self, mark_complete: &Value) {
         let mut global = self.global.borrow_mut();
-        let _ = global.channel.request_cbor(mark_complete);
-        let _ = global.channel.close();
+        let _ = global.stream.request_cbor(mark_complete);
+        let _ = global.stream.close();
     }
 }
 
@@ -387,30 +465,27 @@ pub fn deserialize_value<T: serde::de::DeserializeOwned>(raw: Value) -> T {
 /// [`more()`](Collection::more).
 pub struct Collection<'a> {
     tc: &'a TestCase,
-    base_name: String,
     min_size: usize,
     max_size: Option<usize>,
-    server_name: Option<String>,
+    collection_id: Option<i64>,
     finished: bool,
 }
 
 impl<'a> Collection<'a> {
     /// Create a new server-managed collection.
-    pub fn new(tc: &'a TestCase, name: &str, min_size: usize, max_size: Option<usize>) -> Self {
+    pub fn new(tc: &'a TestCase, min_size: usize, max_size: Option<usize>) -> Self {
         Collection {
             tc,
-            base_name: name.to_string(),
             min_size,
             max_size,
-            server_name: None,
+            collection_id: None,
             finished: false,
         }
     }
 
-    fn ensure_initialized(&mut self) -> &str {
-        if self.server_name.is_none() {
+    fn ensure_initialized(&mut self) -> i64 {
+        if self.collection_id.is_none() {
             let mut payload = cbor_map! {
-                "name" => self.base_name.as_str(),
                 "min_size" => self.min_size as u64
             };
             if let Some(max) = self.max_size {
@@ -422,18 +497,21 @@ impl<'a> Collection<'a> {
                     panic!("{}", STOP_TEST_STRING); // nocov
                 }
             };
-            let name = match response {
-                Value::Text(s) => s,
+            let id = match response {
+                Value::Integer(i) => {
+                    let n: i128 = i.into();
+                    n as i64
+                }
                 // nocov start
                 _ => panic!(
-                    "Expected text response from new_collection, got {:?}",
+                    "Expected integer response from new_collection, got {:?}",
                     response
                 ),
                 // nocov end
             };
-            self.server_name = Some(name);
+            self.collection_id = Some(id);
         }
-        self.server_name.as_ref().unwrap()
+        self.collection_id.unwrap()
     }
 
     /// Ask the server whether to produce another element.
@@ -441,10 +519,10 @@ impl<'a> Collection<'a> {
         if self.finished {
             return false; // nocov
         }
-        let server_name = self.ensure_initialized().to_string();
+        let collection_id = self.ensure_initialized();
         let response = match self.tc.send_request(
             "collection_more",
-            &cbor_map! { "collection" => server_name.as_str() },
+            &cbor_map! { "collection_id" => collection_id },
         ) {
             Ok(v) => v,
             Err(StopTestError) => {
@@ -468,9 +546,9 @@ impl<'a> Collection<'a> {
         if self.finished {
             return;
         }
-        let server_name = self.ensure_initialized().to_string();
+        let collection_id = self.ensure_initialized();
         let mut payload = cbor_map! {
-            "collection" => server_name.as_str()
+            "collection_id" => collection_id
             // nocov end
         };
         // nocov start

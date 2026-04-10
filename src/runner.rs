@@ -1,6 +1,6 @@
 use crate::antithesis::{TestLocation, is_running_in_antithesis};
 use crate::control::{currently_in_test_context, with_test_context};
-use crate::protocol::{Channel, Connection, HANDSHAKE_STRING, SERVER_CRASHED_MESSAGE};
+use crate::protocol::{Connection, HANDSHAKE_STRING, SERVER_CRASHED_MESSAGE, Stream};
 use crate::test_case::{ASSUME_FAIL_STRING, STOP_TEST_STRING, TestCase};
 use ciborium::Value;
 
@@ -10,17 +10,34 @@ use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::panic::{self, AssertUnwindSafe, catch_unwind};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once};
+use std::time::{Duration, Instant};
 
-const SUPPORTED_PROTOCOL_VERSIONS: (f64, f64) = (0.6, 0.7);
-const HEGEL_SERVER_VERSION: &str = "0.2.3";
+const SUPPORTED_PROTOCOL_VERSIONS: (&str, &str) = ("0.10", "0.10");
+const HEGEL_SERVER_VERSION: &str = "0.4.0";
 const HEGEL_SERVER_COMMAND_ENV: &str = "HEGEL_SERVER_COMMAND";
 const HEGEL_SERVER_DIR: &str = ".hegel";
-static SERVER_LOG_FILE: std::sync::OnceLock<Mutex<File>> = std::sync::OnceLock::new();
+static SERVER_LOG_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static LOG_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static SESSION: std::sync::OnceLock<HegelSession> = std::sync::OnceLock::new();
 
 static PANIC_HOOK_INIT: Once = Once::new();
+
+/// Parse a "major.minor" version string into a comparable tuple.
+fn parse_version(s: &str) -> (u32, u32) {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 2 {
+        panic!("invalid version string '{s}': expected 'major.minor' format");
+    }
+    let major = parts[0]
+        .parse()
+        .unwrap_or_else(|_| panic!("invalid major version in '{s}'"));
+    let minor = parts[1]
+        .parse()
+        .unwrap_or_else(|_| panic!("invalid minor version in '{s}'"));
+    (major, minor)
+}
 
 /// A persistent connection to the hegel server subprocess.
 ///
@@ -29,11 +46,11 @@ static PANIC_HOOK_INIT: Once = Once::new();
 /// multiple sequential `run_test` commands over a single connection.
 struct HegelSession {
     connection: Arc<Connection>,
-    /// The control channel is shared across threads, so it's behind a Mutex
-    /// because Channel is not thread-safe. The lock is only held for the
+    /// The control stream is shared across threads, so it's behind a Mutex
+    /// because Stream is not thread-safe. The lock is only held for the
     /// brief run_test send/receive; test execution runs concurrently on
-    /// per-test channels.
-    control: Mutex<Channel>,
+    /// per-test streams.
+    control: Mutex<Stream>,
 }
 
 impl HegelSession {
@@ -63,15 +80,20 @@ impl HegelSession {
         let child_stdout = child.stdout.take().expect("Failed to take child stdout");
 
         let connection = Connection::new(Box::new(child_stdout), Box::new(child_stdin));
-        let mut control = connection.control_channel();
+        let mut control = connection.control_stream();
+
+        // Derive the binary path before the handshake so it's available for error messages.
+        let binary_path = std::env::var(HEGEL_SERVER_COMMAND_ENV).ok();
 
         // Handshake
-        let req_id = control
+        let handshake_result = control
             .send_request(HANDSHAKE_STRING.to_vec())
-            .expect("Failed to send version negotiation");
-        let response = control
-            .receive_reply(req_id)
-            .expect("Failed to receive version response");
+            .and_then(|req_id| control.receive_reply(req_id));
+
+        let response = match handshake_result {
+            Ok(r) => r,
+            Err(e) => handle_handshake_failure(&mut child, binary_path.as_deref(), e), // nocov
+        };
 
         let decoded = String::from_utf8_lossy(&response);
         let server_version = match decoded.strip_prefix("Hegel/") {
@@ -81,18 +103,14 @@ impl HegelSession {
                 panic!("Bad handshake response: {decoded:?}"); // nocov
             }
         };
-        let version: f64 = server_version.parse().unwrap_or_else(|_| {
-            let _ = child.kill(); // nocov
-            panic!("Bad version number: {server_version}"); // nocov
-        });
-
         let (lo, hi) = SUPPORTED_PROTOCOL_VERSIONS;
         // nocov start
-        if !(lo <= version && version <= hi) {
+        let version = parse_version(server_version);
+        if version < parse_version(lo) || version > parse_version(hi) {
             let _ = child.kill();
             panic!(
                 "hegel-rust supports protocol versions {lo} through {hi}, but \
-                 the connected server is using protocol version {version}. Upgrading \
+                 the connected server is using protocol version {server_version}. Upgrading \
                  hegel-rust or downgrading hegel-core might help."
             );
             // nocov end
@@ -254,7 +272,7 @@ fn init_panic_hook() {
 
 fn hegel_command() -> Command {
     if let Ok(override_path) = std::env::var(HEGEL_SERVER_COMMAND_ENV) {
-        return Command::new(override_path); // nocov
+        return Command::new(resolve_hegel_path(&override_path)); // nocov
     }
     let uv_path = crate::uv::find_uv();
     let mut cmd = Command::new(uv_path);
@@ -269,19 +287,136 @@ fn hegel_command() -> Command {
 }
 
 fn server_log_file() -> File {
-    let file = SERVER_LOG_FILE.get_or_init(|| {
-        std::fs::create_dir_all(HEGEL_SERVER_DIR).ok();
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(format!("{HEGEL_SERVER_DIR}/server.log"))
-            .expect("Failed to open server log file");
-        Mutex::new(file)
-    });
-    file.lock()
-        .unwrap()
-        .try_clone()
-        .expect("Failed to clone server log file handle")
+    std::fs::create_dir_all(HEGEL_SERVER_DIR).ok();
+    let pid = std::process::id();
+    let ix = LOG_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = format!("{HEGEL_SERVER_DIR}/server.{pid}-{ix}.log");
+    SERVER_LOG_PATH.set(path.clone()).ok();
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .expect("Failed to open server log file")
+}
+
+fn wait_for_exit(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = Instant::now();
+    loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+        if start.elapsed() >= timeout {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn handle_handshake_failure(
+    child: &mut std::process::Child,
+    binary_path: Option<&str>,
+    handshake_err: impl std::fmt::Display,
+) -> ! {
+    let exit_status = wait_for_exit(child, Duration::from_millis(100));
+    let child_still_running = exit_status.is_none();
+    if child_still_running {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!(
+            "The hegel server failed during startup handshake: {handshake_err}\n\n\
+             The server process did not exit. Possibly bad virtualenv?"
+        );
+    }
+    panic!(
+        "{}",
+        startup_error_message(binary_path, exit_status.unwrap())
+    );
+}
+
+fn startup_error_message(
+    binary_path: Option<&str>,
+    exit_status: std::process::ExitStatus,
+) -> String {
+    let mut parts = Vec::new();
+
+    parts.push("The hegel server failed during startup handshake.".to_string());
+    parts.push(format!("The server process exited with {}.", exit_status));
+
+    // Version detection via --version (only when we have a binary path to check)
+    if let Some(binary_path) = binary_path {
+        let expected_version_string = format!("hegel (version {})", HEGEL_SERVER_VERSION);
+        match Command::new(binary_path).arg("--version").output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if stdout != expected_version_string {
+                    parts.push(format!(
+                        "Version mismatch: expected '{}', got '{}'.",
+                        expected_version_string, stdout
+                    ));
+                }
+            }
+            Ok(_) => {
+                parts.push(format!(
+                    "'{}' --version exited unsuccessfully. Is this a hegel binary?",
+                    binary_path
+                ));
+            }
+            Err(e) => {
+                parts.push(format!(
+                    "Could not run '{}' --version: {}. Is this a hegel binary?",
+                    binary_path, e
+                ));
+            }
+        }
+    }
+
+    // Include server log contents
+    if let Some(log_path) = SERVER_LOG_PATH.get() {
+        if let Ok(contents) = std::fs::read_to_string(log_path) {
+            if !contents.trim().is_empty() {
+                let lines: Vec<&str> = contents.lines().collect();
+                let display_lines: Vec<&str> = lines.iter().take(3).copied().collect();
+                let mut log_section =
+                    format!("Server log ({}):\n{}", log_path, display_lines.join("\n"));
+                if lines.len() > 3 {
+                    log_section.push_str(&format!("\n... (see {} for full output)", log_path));
+                }
+                parts.push(log_section);
+            }
+        }
+    }
+
+    parts.join("\n\n")
+}
+
+fn resolve_hegel_path(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    if p.exists() {
+        crate::utils::validate_executable(path);
+        return path.to_string();
+    }
+
+    // Bare name (no '/') — try PATH lookup
+    if !path.contains('/') {
+        if let Some(resolved) = crate::utils::which(path) {
+            crate::utils::validate_executable(&resolved);
+            return resolved;
+        }
+        panic!(
+            "Hegel server binary '{}' not found on PATH. \
+             Check that {} is set correctly, or install hegel-core.",
+            path, HEGEL_SERVER_COMMAND_ENV
+        );
+    }
+
+    panic!(
+        "Hegel server binary not found at '{}'. \
+         Check that {} is set correctly.",
+        path, HEGEL_SERVER_COMMAND_ENV
+    );
 }
 
 /// Health checks that can be suppressed during test execution.
@@ -426,11 +561,9 @@ impl Settings {
     }
 
     /// Set the verbosity level.
-    // nocov start
     pub fn verbosity(mut self, verbosity: Verbosity) -> Self {
         self.verbosity = verbosity;
         self
-        // nocov end
     }
 
     /// Set a fixed seed for reproducibility, or `None` for random.
@@ -538,7 +671,7 @@ where
         let mut test_fn = self.test_fn;
         let verbosity = self.settings.verbosity;
         let got_interesting = Arc::new(AtomicBool::new(false));
-        let mut test_channel = connection.new_channel();
+        let mut test_stream = connection.new_stream();
 
         let suppress_names: Vec<Value> = self
             .settings
@@ -555,7 +688,7 @@ where
             "command" => "run_test",
             "test_cases" => self.settings.test_cases,
             "seed" => self.settings.seed.map_or(Value::Null, Value::from),
-            "channel_id" => test_channel.channel_id,
+            "stream_id" => test_stream.stream_id,
             "database_key" => database_key_bytes,
             "derandomize" => self.settings.derandomize
         };
@@ -578,9 +711,9 @@ where
             }
         }
 
-        // The control channel is behind a Mutex because Channel requires &mut self.
+        // The control stream is behind a Mutex because Stream requires &mut self.
         // This only serializes the brief run_test send/receive — actual test
-        // execution happens on per-test channels without holding this lock.
+        // execution happens on per-test streams without holding this lock.
         {
             let mut control = session.control.lock().unwrap();
             let run_test_id = control
@@ -602,7 +735,7 @@ where
         loop {
             // Handle the server dying between events: receive_request will
             // fail with RecvError once the background reader clears the senders.
-            let (event_id, event_payload) = match test_channel.receive_request() {
+            let (event_id, event_payload) = match test_stream.receive_request() {
                 Ok(event) => event,
                 // nocov start
                 Err(_) if connection.server_has_exited() => {
@@ -623,20 +756,20 @@ where
 
             match event_type {
                 "test_case" => {
-                    let channel_id = map_get(&event, "channel_id")
+                    let stream_id = map_get(&event, "stream_id")
                         .and_then(as_u64)
-                        .expect("Missing channel id") as u32;
+                        .expect("Missing stream id") as u32;
 
-                    let test_case_channel = connection.connect_channel(channel_id);
+                    let test_case_stream = connection.connect_stream(stream_id);
 
                     // Ack the test_case event BEFORE running the test (prevents deadlock)
-                    test_channel
+                    test_stream
                         .write_reply(event_id, cbor_encode(&ack_null))
                         .expect("Failed to ack test_case");
 
                     run_test_case(
                         connection,
-                        test_case_channel,
+                        test_case_stream,
                         &mut test_fn,
                         false,
                         verbosity,
@@ -645,7 +778,7 @@ where
                 }
                 "test_done" => {
                     let ack_true = cbor_map! {"result" => true};
-                    test_channel
+                    test_stream
                         .write_reply(event_id, cbor_encode(&ack_true))
                         .expect("Failed to ack test_done");
                     result_data = map_get(&event, "results").cloned().unwrap_or(Value::Null);
@@ -683,7 +816,7 @@ where
         // Process final replay test cases (one per interesting example)
         let mut final_result: Option<TestCaseResult> = None;
         for _ in 0..n_interesting {
-            let (event_id, event_payload) = test_channel
+            let (event_id, event_payload) = test_stream
                 .receive_request()
                 .expect("Failed to receive final test_case");
 
@@ -691,19 +824,19 @@ where
             let event_type = map_get(&event, "event").and_then(as_text);
             assert_eq!(event_type, Some("test_case"));
 
-            let channel_id = map_get(&event, "channel_id")
+            let stream_id = map_get(&event, "stream_id")
                 .and_then(as_u64)
-                .expect("Missing channel id") as u32;
+                .expect("Missing stream id") as u32;
 
-            let test_case_channel = connection.connect_channel(channel_id);
+            let test_case_stream = connection.connect_stream(stream_id);
 
-            test_channel
+            test_stream
                 .write_reply(event_id, cbor_encode(&ack_null))
                 .expect("Failed to ack final test_case");
 
             let tc_result = run_test_case(
                 connection,
-                test_case_channel,
+                test_case_stream,
                 &mut test_fn,
                 true,
                 verbosity,
@@ -759,7 +892,7 @@ enum TestCaseResult {
 
 fn run_test_case<F: FnMut(TestCase)>(
     connection: &Arc<Connection>,
-    test_channel: Channel,
+    test_stream: Stream,
     test_fn: &mut F,
     is_final: bool,
     verbosity: Verbosity,
@@ -767,7 +900,7 @@ fn run_test_case<F: FnMut(TestCase)>(
 ) -> TestCaseResult {
     // Create TestCase. The test function gets a clone (cheap Rc bump),
     // so we retain access to the same underlying TestCaseData after the test runs.
-    let tc = TestCase::new(Arc::clone(connection), test_channel, verbosity, is_final);
+    let tc = TestCase::new(Arc::clone(connection), test_stream, verbosity, is_final);
 
     let result = with_test_context(|| catch_unwind(AssertUnwindSafe(|| test_fn(tc.clone()))));
 
@@ -825,8 +958,8 @@ fn run_test_case<F: FnMut(TestCase)>(
         }
     };
 
-    // Send mark_complete using the same channel that generators used.
-    // Skip if test was aborted (StopTest) - server already closed the channel.
+    // Send mark_complete using the same stream that generators used.
+    // Skip if test was aborted (StopTest) - server already closed the stream.
     if !tc.test_aborted() {
         let status = match &tc_result {
             TestCaseResult::Valid => "VALID",
@@ -870,3 +1003,7 @@ fn cbor_encode(value: &Value) -> Vec<u8> {
 fn cbor_decode(bytes: &[u8]) -> Value {
     ciborium::from_reader(bytes).expect("CBOR decoding failed")
 }
+
+#[cfg(test)]
+#[path = "../tests/embedded/runner_tests.rs"]
+mod tests;

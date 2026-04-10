@@ -9,14 +9,14 @@ This is the Rust library for Hegel, a universal property-based testing framework
 ## Build & Test Commands
 
 ```bash
-just check                          # Full CI: check-format + lint + check-test + check-docs
-just test                           # cargo test --all-features
-just lint                           # cargo clippy --all-features --tests -- -D warnings
-just format                         # cargo fmt
-just docs                           # cargo doc --open --all-features --no-deps
-just check-conformance              # pytest conformance tests (requires Python environment)
-just check-coverage                 # cargo llvm-cov --fail-under-lines 30 (requires cargo-llvm-cov + llvm-tools-preview)
-cargo test test_name                # Run single test
+just check                          # run full CI checks
+just test                           # run tests
+just lint                           # run clipy
+just format                         # format
+just docs                           # build and open docs
+just check-conformance              # run python conformance tests
+just check-coverage                 # check coverage (requires cargo-llvm-cov + llvm-tools-preview)
+cargo test test_name                # run a single test
 ```
 
 MSRV is 1.86 (enforced in CI and Cargo.toml). If you bump it, also bump `ci.yml` and `hegel-macros/Cargo.toml`.
@@ -24,7 +24,7 @@ MSRV is 1.86 (enforced in CI and Cargo.toml). If you bump it, also bump `ci.yml`
 ## Crate Structure
 
 - `src/lib.rs` — Public API: `hegel()`, `Hegel` builder, `draw()`, `assume()`, `note()`
-- `src/protocol.rs` — Binary protocol: packet encoding/decoding, channel multiplexing
+- `src/protocol.rs` — Binary protocol: packet encoding/decoding, stream multiplexing
 - `src/cbor_helpers.rs` — Macros and helpers for `ciborium::Value` (`cbor_map!`, `cbor_array!`, `map_get`, etc.)
 - `src/runner.rs` — Spawns hegel CLI, manages socket server
 - `src/generators/` — All generator implementations (`mod.rs` has the `Generate` trait + `TestCaseData`)
@@ -43,10 +43,10 @@ The library creates a Unix socket path and spawns the `hegel` CLI as a subproces
 
 ### Protocol
 
-CBOR-encoded binary protocol over multiplexed channels. For each test:
-1. Client sends `run_test` request on control channel (channel 0)
-2. Server sends `test_case` events with channel IDs for each test case
-3. Client runs the test function, sending `generate`/`start_span`/`stop_span` requests on the test channel
+CBOR-encoded binary protocol over multiplexed streams. For each test:
+1. Client sends `run_test` request on control stream (stream 0)
+2. Server sends `test_case` events with stream IDs for each test case
+3. Client runs the test function, sending `generate`/`start_span`/`stop_span` requests on the test stream
 4. Client sends `mark_complete` with status (VALID, INVALID, or INTERESTING)
 5. After all test cases, server sends `test_done` with results
 
@@ -62,7 +62,7 @@ Key insight: `map()` on a `BasicGenerator` preserves the schema by composing the
 
 ### Thread-Local State
 
-`TestCaseData` is stored in thread-local `TEST_CASE_DATA` and holds the socket connection, channel, and span depth. `IS_LAST_RUN` tracks whether this is the final replay for counterexample output.
+`TestCaseData` is stored in thread-local `TEST_CASE_DATA` and holds the socket connection, stream, and span depth. `IS_LAST_RUN` tracks whether this is the final replay for counterexample output.
 
 ### Span System
 
@@ -91,9 +91,11 @@ For enums, it also creates `<Enum><Variant>Generator` for each data variant. Imp
 
 ### Testing Conventions
 
-- Place tests in `tests/` as integration tests, not as inline `#[cfg(test)] mod tests` in source files.
-- When a test needs a throwaway generator, prefer `generators::booleans()` as the simplest option (unless the test needs a larger value space).
+- All tests go in `tests/`, never inline in source files. Tests that don't need access to private functions go directly in `tests/` as integration tests. Tests that need access to private functions go in `tests/embedded/`, mirroring the `src/` directory structure (e.g. `src/protocol/packet.rs` → `tests/embedded/protocol/packet_tests.rs`). Embedded tests are included as child modules of their source file via `#[cfg(test)] #[path = "..."] mod tests;`, which gives them access to private items through `use super::*`. This keeps test code out of source files while preserving access to internals that Rust would otherwise forbid.
+- Always import generators as `use hegel::generators as gs;` (or `use hegel::generators::{self as gs, Generator};` when the `Generator` trait is needed). Use `gs::` in all generator calls, e.g. `gs::booleans()`, `gs::integers::<i32>()`. This applies to code inside string literals (e.g. `TempRustProject` snippets) as well.
+- When a test needs a throwaway generator, prefer `gs::booleans()` as the simplest option (unless the test needs a larger value space).
 - In test code, prefer `.unwrap()` over `.expect("static message")`. A static expect message rarely adds information beyond what the panic already provides (error type + source location). Only use `.expect()` when the message includes a formatted value that aids debugging (e.g., `.expect(&format!("failed to open {}", path))`).
+- When a return value isn't used, don't bind it to `_` — just call the function as a bare statement. Only use `let _ =` when needed to suppress a `#[must_use]` warning.
 
 ### Code Coverage
 
