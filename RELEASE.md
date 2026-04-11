@@ -1,3 +1,5 @@
-RELEASE_TYPE: patch
+RELEASE_TYPE: minor
 
-Fix `VecGenerator::unique(true)` silently ignoring the unique constraint when used with composite (non-basic) generators. The fallback draw path now performs client-side deduplication using `collection.reject()`.
+Fix `vecs(...).unique(true)` not actually enforcing element uniqueness in some cases.
+
+Calling `.unique()` now requires the elements produced by the generator passed to `vecs()` to implement `PartialEq`. This is therefore technically a breaking change, though we expect that the only case where you will need to update your code is when it was previously not working anyway.
