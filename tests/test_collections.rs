@@ -93,15 +93,16 @@ fn test_vec_unique_composite(tc: TestCase) {
 }
 
 #[hegel::test]
-fn test_vec_unique_false(tc: TestCase) {
-    // Verify that .unique(false) unsets uniqueness (e.g. after .unique(true))
+fn test_vec_unique_false_after_true(tc: TestCase) {
+    // .unique(false) unsets uniqueness. With unique(true), min_size(5) on booleans
+    // would be impossible (only 2 distinct values), so this proves it was unset.
     let vec: Vec<bool> = tc.draw(
         gs::vecs(gs::booleans())
-            .min_size(2)
+            .min_size(5)
             .unique(true)
             .unique(false),
     );
-    assert!(vec.len() >= 2);
+    assert!(vec.len() >= 5);
 }
 
 #[hegel::test]
