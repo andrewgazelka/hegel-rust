@@ -1,6 +1,6 @@
-use hegel::generators as gs;
+use hegel::generators::{self as gs, BoxedGenerator, Generator};
 use hegel::{Hegel, Settings};
-use hegel_conformance::{get_test_cases, write};
+use hegel_conformance::{get_test_cases, make_non_basic, write};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -10,6 +10,10 @@ struct Params {
     max_size: Option<usize>,
     min_value: Option<i32>,
     max_value: Option<i32>,
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    unique: bool,
 }
 
 #[derive(Serialize)]
@@ -17,6 +21,7 @@ struct Metrics {
     size: usize,
     min_element: Option<i32>,
     max_element: Option<i32>,
+    all_unique: bool,
 }
 
 fn main() {
@@ -32,15 +37,23 @@ fn main() {
     });
 
     Hegel::new(move |tc| {
-        let mut elem_gen = gs::integers::<i32>();
+        let mut g = gs::integers::<i32>();
         if let Some(min) = params.min_value {
-            elem_gen = elem_gen.min_value(min);
+            g = g.min_value(min);
         }
         if let Some(max) = params.max_value {
-            elem_gen = elem_gen.max_value(max);
+            g = g.max_value(max);
         }
 
-        let mut vec_gen = gs::vecs(elem_gen).min_size(params.min_size);
+        let elem_gen: BoxedGenerator<'static, i32> = if params.mode == "non_basic" {
+            make_non_basic(g)
+        } else {
+            g.boxed()
+        };
+
+        let mut vec_gen = gs::vecs(elem_gen)
+            .min_size(params.min_size)
+            .unique(params.unique);
         if let Some(max) = params.max_size {
             vec_gen = vec_gen.max_size(max);
         }
@@ -53,11 +66,16 @@ fn main() {
         } else {
             (list.iter().min().copied(), list.iter().max().copied())
         };
+        let unique_count = {
+            let mut seen = std::collections::HashSet::new();
+            list.iter().filter(|x| seen.insert(*x)).count()
+        };
 
         write(&Metrics {
             size,
             min_element,
             max_element,
+            all_unique: unique_count == size,
         });
     })
     .settings(Settings::new().test_cases(get_test_cases()))
