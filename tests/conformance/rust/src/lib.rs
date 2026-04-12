@@ -24,12 +24,18 @@ pub fn get_test_cases() -> u64 {
         .unwrap_or(50)
 }
 
-/// Wrap a generator in a trivial composite so `as_basic()` returns `None`,
-/// forcing the compositional fallback path.
-pub fn make_non_basic<T: std::fmt::Debug + 'static>(
+/// Box a generator. If `mode` is `"non_basic"`, wraps it in a trivial
+/// composite so `as_basic()` returns `None`, forcing the compositional
+/// fallback path.
+pub fn maybe_non_basic<T: std::fmt::Debug + 'static>(
     generator: impl Generator<T> + 'static,
+    mode: &str,
 ) -> BoxedGenerator<'static, T> {
-    hegel::compose!(|tc| { tc.draw(&generator) }).boxed()
+    if mode == "non_basic" {
+        hegel::compose!(|tc| { tc.draw(&generator) }).boxed()
+    } else {
+        generator.boxed()
+    }
 }
 
 /// Write metrics as a JSON line to the metrics file.

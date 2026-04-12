@@ -1,6 +1,6 @@
-use hegel::generators::{self as gs, BoxedGenerator, Generator};
+use hegel::generators as gs;
 use hegel::{Hegel, Settings};
-use hegel_conformance::{get_test_cases, make_non_basic, write};
+use hegel_conformance::{get_test_cases, maybe_non_basic, write};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -13,7 +13,6 @@ struct Params {
     max_key: i32,
     min_value: i32,
     max_value: i32,
-    #[serde(default)]
     mode: String,
 }
 
@@ -47,33 +46,22 @@ fn main() {
 
         match params.key_type.as_str() {
             "integer" => {
-                let key_gen: BoxedGenerator<'static, i32> = if params.mode == "non_basic" {
-                    make_non_basic(
+                let hashmap_gen = gs::hashmaps(
+                    maybe_non_basic(
                         gs::integers::<i32>()
                             .min_value(params.min_key)
                             .max_value(params.max_key),
-                    )
-                } else {
-                    gs::integers::<i32>()
-                        .min_value(params.min_key)
-                        .max_value(params.max_key)
-                        .boxed()
-                };
-                let val_gen: BoxedGenerator<'static, i32> = if params.mode == "non_basic" {
-                    make_non_basic(
+                        &params.mode,
+                    ),
+                    maybe_non_basic(
                         gs::integers::<i32>()
                             .min_value(params.min_value)
                             .max_value(params.max_value),
-                    )
-                } else {
-                    gs::integers::<i32>()
-                        .min_value(params.min_value)
-                        .max_value(params.max_value)
-                        .boxed()
-                };
-                let hashmap_gen = gs::hashmaps(key_gen, val_gen)
-                    .min_size(params.min_size)
-                    .max_size(params.max_size);
+                        &params.mode,
+                    ),
+                )
+                .min_size(params.min_size)
+                .max_size(params.max_size);
 
                 let map = tc.draw(hashmap_gen);
                 size = map.len();
@@ -90,26 +78,17 @@ fn main() {
                 }
             }
             "string" => {
-                let key_gen: BoxedGenerator<'static, String> = if params.mode == "non_basic" {
-                    make_non_basic(gs::text())
-                } else {
-                    gs::text().boxed()
-                };
-                let val_gen: BoxedGenerator<'static, i32> = if params.mode == "non_basic" {
-                    make_non_basic(
+                let hashmap_gen = gs::hashmaps(
+                    maybe_non_basic(gs::text(), &params.mode),
+                    maybe_non_basic(
                         gs::integers::<i32>()
                             .min_value(params.min_value)
                             .max_value(params.max_value),
-                    )
-                } else {
-                    gs::integers::<i32>()
-                        .min_value(params.min_value)
-                        .max_value(params.max_value)
-                        .boxed()
-                };
-                let hashmap_gen = gs::hashmaps(key_gen, val_gen)
-                    .min_size(params.min_size)
-                    .max_size(params.max_size);
+                        &params.mode,
+                    ),
+                )
+                .min_size(params.min_size)
+                .max_size(params.max_size);
 
                 let map = tc.draw(hashmap_gen);
                 size = map.len();

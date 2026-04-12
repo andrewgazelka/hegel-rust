@@ -9,7 +9,7 @@ struct Metrics {
 }
 
 fn main() {
-    Hegel::new(move |tc| {
+    Hegel::new(|tc| {
         let value = tc.draw(gs::booleans());
         write(&Metrics { value });
     })

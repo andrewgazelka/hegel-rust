@@ -1,6 +1,6 @@
-use hegel::generators::{self as gs, BoxedGenerator, Generator};
+use hegel::generators as gs;
 use hegel::{Hegel, Settings};
-use hegel_conformance::{get_test_cases, make_non_basic, write};
+use hegel_conformance::{get_test_cases, maybe_non_basic, write};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -10,9 +10,7 @@ struct Params {
     max_size: Option<usize>,
     min_value: Option<i32>,
     max_value: Option<i32>,
-    #[serde(default)]
     mode: String,
-    #[serde(default)]
     unique: bool,
 }
 
@@ -42,13 +40,7 @@ fn main() {
             g = g.max_value(max);
         }
 
-        let elem_gen: BoxedGenerator<'static, i32> = if params.mode == "non_basic" {
-            make_non_basic(g)
-        } else {
-            g.boxed()
-        };
-
-        let mut vec_gen = gs::vecs(elem_gen)
+        let mut vec_gen = gs::vecs(maybe_non_basic(g, &params.mode))
             .min_size(params.min_size)
             .unique(params.unique);
         if let Some(max) = params.max_size {
