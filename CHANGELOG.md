@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.5.0 - 2026-04-12
+
+Fix `vecs(...).unique(true)` not actually enforcing element uniqueness in some cases.
+
+Calling `.unique()` now requires the elements produced by the generator passed to `vecs()` to implement `PartialEq`. This is therefore technically a breaking change, though we expect that the only case where you will need to update your code is when it was previously not working anyway.
+
+## 0.4.6 - 2026-04-10
+
+Bump our pinned hegel-core to [0.4.0](https://github.com/hegeldev/hegel-core/releases/tag/v0.4.0), incorporating the following change:
+
+> This patch changes our CBOR tag for text fields from `6` to `91`, to avoid reserving a "Standards Action" tag, even though it is technically unassigned. See https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml.
+>
+> The protocol version is now `0.10`.
+>
+> — [v0.4.0](https://github.com/hegeldev/hegel-core/releases/tag/v0.4.0)
+
+## 0.4.5 - 2026-04-07
+
+This release adds more configuration parameters to `generators::text()`:
+
+```rust
+gs::text().codec("ascii");
+gs::text().alphabet("abc");
+gs::text().min_codepoint(0x20).max_codepoint(0x7E);
+gs::text().categories(&["L", "Nd"]);
+gs::text().exclude_categories(&["Cc"]);
+gs::text().include_characters("@#$");
+gs::text().exclude_characters("\n\t");
+```
+
+As well as a new `characters()` generator:
+
+```rust
+let c: char = tc.draw(gs::characters());
+let c: char = tc.draw(gs::characters().codec("ascii"));
+```
+
+## 0.4.4 - 2026-04-07
+
+This patch improves our output for failing test cases. We now print drawn values using variable names from the test function, instead of numbered `Draw` labels:
+
+```rust
+#[hegel::test]
+fn my_test(tc: hegel::TestCase) {
+    let x: i32 = tc.draw(gs::integers());
+    let y: i32 = tc.draw(gs::integers());
+    for _ in 0..2 {
+        let z: i32 = tc.draw(gs::integers());
+    }
+    panic!("");
+}
+
+// Previously:
+// Draw 1: 0
+// Draw 2: 1
+// Draw 3: 0
+// Draw 4: 3
+
+// Now:
+// let x = 0;
+// let y = 1;
+// let z_1 = 0;
+// let z_2 = 3;
+```
+
 ## 0.4.3 - 2026-04-03
 
 This patch updates our pinned hegel-core to [0.3.0](https://github.com/hegeldev/hegel-core/releases/tag/v0.3.0), with no user-visible changes.
