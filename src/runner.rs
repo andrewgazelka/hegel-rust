@@ -19,7 +19,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: (&str, &str) = ("0.10", "0.10");
 const HEGEL_SERVER_VERSION: &str = "0.4.0";
 const HEGEL_SERVER_COMMAND_ENV: &str = "HEGEL_SERVER_COMMAND";
 const HEGEL_SERVER_DIR: &str = ".hegel";
-static SERVER_LOG_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static SERVER_LOG_PATH: Mutex<Option<String>> = Mutex::new(None);
 static LOG_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static SESSION: Mutex<Option<Arc<HegelSession>>> = Mutex::new(None);
 
@@ -731,7 +731,7 @@ fn server_log_file() -> File {
     let pid = std::process::id();
     let ix = LOG_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = format!("{HEGEL_SERVER_DIR}/server.{pid}-{ix}.log");
-    SERVER_LOG_PATH.set(path.clone()).ok();
+    *SERVER_LOG_PATH.lock().unwrap() = Some(path.clone());
     OpenOptions::new()
         .create(true)
         .append(true)
@@ -814,8 +814,8 @@ fn startup_error_message(
     }
 
     // Include server log contents
-    if let Some(log_path) = SERVER_LOG_PATH.get() {
-        if let Ok(contents) = std::fs::read_to_string(log_path) {
+    if let Some(log_path) = SERVER_LOG_PATH.lock().unwrap().clone() {
+        if let Ok(contents) = std::fs::read_to_string(&log_path) {
             if !contents.trim().is_empty() {
                 let lines: Vec<&str> = contents.lines().collect();
                 let display_lines: Vec<&str> = lines.iter().take(3).copied().collect();
@@ -946,19 +946,20 @@ fn flush_log_indent_run(
 }
 
 fn server_log_excerpt() -> Option<String> {
-    let log_path = SERVER_LOG_PATH.get()?;
+    let log_path = SERVER_LOG_PATH.lock().unwrap().clone()?;
     let content = std::fs::read_to_string(log_path).ok()?;
-    if content.trim().is_empty() {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
         return None;
     }
-    Some(format_log_excerpt(&content))
+    Some(format_log_excerpt(trimmed))
 }
 
 fn server_crash_message() -> String {
     const BASE: &str = "The hegel server process exited unexpectedly.";
-    let log_path = SERVER_LOG_PATH
-        .get()
-        .map(|s| s.as_str())
+    let log_path_owned = SERVER_LOG_PATH.lock().unwrap().clone();
+    let log_path = log_path_owned
+        .as_deref()
         .unwrap_or(".hegel/server.log");
     match server_log_excerpt() {
         Some(excerpt) => format!("{BASE}\n\nLast server log entries:\n{excerpt}"),

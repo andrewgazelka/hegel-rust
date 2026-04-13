@@ -226,11 +226,12 @@ fn test_protocol_debug_true_when_env_set() {
 // between parallel test threads.
 static LOG_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Return the path that `server_log_excerpt()` reads from, ensuring
-/// `SERVER_LOG_PATH` is initialised.
-fn log_path() -> &'static String {
-    let _ = SERVER_LOG_PATH.set(format!("{HEGEL_SERVER_DIR}/server.test.log"));
-    SERVER_LOG_PATH.get().unwrap()
+/// Return the path that `server_log_excerpt()` reads from, updating
+/// `SERVER_LOG_PATH` to point at a test-specific log file.
+fn log_path() -> String {
+    let path = format!("{HEGEL_SERVER_DIR}/server.test.log");
+    *SERVER_LOG_PATH.lock().unwrap() = Some(path.clone());
+    path
 }
 
 fn write_server_log(content: &str) {
