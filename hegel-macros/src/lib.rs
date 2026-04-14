@@ -37,6 +37,10 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Define an explicit test case to run before the property-based test.
 ///
+/// Note: We are not currently 100% happy with the name of this attribute
+/// and expect that we might change it in future. The API should otherwise
+/// remain compatible, but you might have to rename some call-sites.
+///
 /// Must be placed **below** `#[hegel::test]`. Multiple attributes are allowed.
 ///
 /// ```ignore
