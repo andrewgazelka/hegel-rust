@@ -186,8 +186,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub(crate) mod antithesis;
+pub mod backend;
 pub(crate) mod cbor_utils;
 pub(crate) mod control;
+pub mod explicit_test_case;
 pub mod generators;
 pub(crate) mod protocol;
 pub(crate) mod runner;
@@ -198,6 +200,7 @@ mod uv;
 
 #[doc(hidden)]
 pub use control::currently_in_test_context;
+pub use explicit_test_case::ExplicitTestCase;
 pub use generators::Generator;
 pub use test_case::TestCase;
 
@@ -296,6 +299,7 @@ pub use hegel_macros::DefaultGenerator;
 /// }
 /// ```
 pub use hegel_macros::composite;
+pub use hegel_macros::explicit_test_case;
 
 /// Derive a [`StateMachine`](crate::stateful::StateMachine) implementation from an `impl` block.
 ///
@@ -328,6 +332,10 @@ pub use hegel_macros::state_machine;
 /// ```
 pub use hegel_macros::test;
 
+#[doc(hidden)]
+pub use runner::__test_kill_server;
+#[doc(hidden)]
+pub use runner::format_log_excerpt;
 #[doc(hidden)]
 pub use runner::hegel;
 pub use runner::{HealthCheck, Hegel, Settings, Verbosity};

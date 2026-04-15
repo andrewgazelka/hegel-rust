@@ -6,6 +6,48 @@ fn test_settings_verbosity() {
 }
 
 #[test]
+fn test_is_in_ci_some_expected_variant() {
+    // Removing "CI" (a None-type entry) forces the iterator to continue and
+    // evaluate the Some("true") entries such as TF_BUILD and GITHUB_ACTIONS,
+    // exercising the `Some(expected)` match arm in is_in_ci().
+    let ci = std::env::var_os("CI");
+    unsafe {
+        std::env::remove_var("CI");
+        std::env::set_var("TF_BUILD", "true");
+    }
+    let result = is_in_ci();
+    unsafe {
+        std::env::remove_var("TF_BUILD");
+        if let Some(val) = ci {
+            std::env::set_var("CI", val);
+        }
+    }
+    assert!(
+        result,
+        "TF_BUILD=true should be detected as a CI environment"
+    );
+}
+
+#[test]
+fn test_settings_new_in_ci_disables_database() {
+    // Temporarily set a CI env var so is_in_ci() returns true.
+    // Using TEAMCITY_VERSION (checked with None, i.e. any value suffices).
+    let key = "TEAMCITY_VERSION";
+    let had_key = std::env::var_os(key).is_some();
+    unsafe {
+        std::env::set_var(key, "1");
+    }
+    let settings = Settings::new();
+    if !had_key {
+        unsafe {
+            std::env::remove_var(key);
+        }
+    }
+    assert_eq!(settings.database, Database::Disabled);
+    assert!(settings.derandomize);
+}
+
+#[test]
 fn test_wait_for_exit_child_exits() {
     let mut child = Command::new("true").spawn().unwrap();
     let result = wait_for_exit(&mut child, Duration::from_secs(5));
@@ -61,24 +103,14 @@ fn test_startup_error_message_no_binary_path() {
 
 #[test]
 fn test_startup_error_message_includes_server_log() {
-    let dir = std::env::temp_dir().join("hegel_test_unit_log");
-    std::fs::create_dir_all(&dir).unwrap();
-    let log_file = dir.join("server.log");
-    std::fs::write(
-        &log_file,
-        "Error: startup failed\nDetail 1\nDetail 2\nDetail 3\n",
-    )
-    .unwrap();
-    let log_path_str = log_file.to_string_lossy().to_string();
-    let _ = SERVER_LOG_PATH.set(log_path_str.clone());
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    write_server_log("Error: startup failed\nDetail 1\nDetail 2\nDetail 3\n");
 
     let exit_status = Command::new("false").status().unwrap();
     let msg = startup_error_message(Some("false"), exit_status);
-    // Only assert if we successfully set the path (OnceLock may already be set)
-    if SERVER_LOG_PATH.get() == Some(&log_path_str) {
-        assert!(msg.contains("Server log"), "Message: {msg}");
-        assert!(msg.contains("for full output"), "Message: {msg}");
-    }
+    assert!(msg.contains("Server log"), "Message: {msg}");
+    assert!(msg.contains("for full output"), "Message: {msg}");
+    remove_server_log();
 }
 
 #[test]
@@ -173,4 +205,92 @@ fn test_parse_version_non_numeric_minor() {
 #[should_panic(expected = "expected 'major.minor' format")]
 fn test_parse_version_empty_string() {
     parse_version("");
+}
+
+#[test]
+fn test_protocol_debug_true_when_env_set() {
+    // Set the env var BEFORE the LazyLock is first accessed in this binary.
+    // No other test in the lib binary touches PROTOCOL_DEBUG, so this is the
+    // first access and the closure evaluates with the env var present.
+    // This exercises the "1" | "true" arm of the matches! macro.
+    unsafe {
+        std::env::set_var("HEGEL_PROTOCOL_DEBUG", "true");
+    }
+    assert!(*PROTOCOL_DEBUG);
+    unsafe {
+        std::env::remove_var("HEGEL_PROTOCOL_DEBUG");
+    }
+}
+
+// Serialize tests that read/write the server log to prevent interference
+// between parallel test threads.
+static LOG_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Return the path that `server_log_excerpt()` reads from, updating
+/// `SERVER_LOG_PATH` to point at a test-specific log file.
+fn log_path() -> String {
+    let path = format!("{HEGEL_SERVER_DIR}/server.test.log");
+    *SERVER_LOG_PATH.lock().unwrap() = Some(path.clone());
+    path
+}
+
+fn write_server_log(content: &str) {
+    std::fs::create_dir_all(HEGEL_SERVER_DIR).ok();
+    std::fs::write(log_path(), content).ok();
+}
+
+fn remove_server_log() {
+    std::fs::remove_file(log_path()).ok();
+}
+
+#[test]
+fn server_log_excerpt_no_file() {
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    remove_server_log();
+    assert!(server_log_excerpt().is_none());
+}
+
+#[test]
+fn server_log_excerpt_empty_file() {
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    write_server_log("");
+    assert!(server_log_excerpt().is_none());
+    remove_server_log();
+}
+
+#[test]
+fn server_log_excerpt_non_empty_file() {
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    write_server_log("Error: test crash\n");
+    assert!(server_log_excerpt().is_some());
+    remove_server_log();
+}
+
+#[test]
+fn server_crash_message_includes_log_excerpt() {
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    write_server_log("Error: test crash\n");
+    let msg = server_crash_message();
+    assert!(msg.contains("Error: test crash"), "got: {msg}");
+    remove_server_log();
+}
+
+#[test]
+fn handle_channel_error_connection_aborted() {
+    let _guard = LOG_TEST_LOCK.lock().unwrap();
+    remove_server_log();
+    let err = std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "test");
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        handle_channel_error(err);
+    }));
+    let panic_val = result.expect_err("handle_channel_error should have panicked");
+    let msg = panic_val
+        .downcast_ref::<String>()
+        .map(|s| s.as_str())
+        .or_else(|| panic_val.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    assert!(
+        msg.contains("hegel server process exited unexpectedly"),
+        "unexpected panic message: {msg}"
+    );
 }
