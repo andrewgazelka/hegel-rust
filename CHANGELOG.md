@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 - 2026-04-15
+
+This patch adds an `#[hegel::explicit_test_case]` attribute for providing explicit example-based test cases alongside property-based tests.
+
 ## 0.5.1 - 2026-04-13
 
 This release consists entirely of internal refactoring within Hegel to
