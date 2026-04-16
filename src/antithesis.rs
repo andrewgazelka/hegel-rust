@@ -46,7 +46,7 @@ pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
     let location_obj = serde_json::json!({
         "class": location.class,
         "function": location.function,
-        "file": location.file.replace('\\', "/"),
+        "file": location.file,
         "begin_line": location.begin_line,
         "begin_column": 0,
     });
