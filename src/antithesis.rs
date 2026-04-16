@@ -43,10 +43,12 @@ pub(crate) fn emit_assertion(location: &TestLocation, passed: bool) {
         location.class, location.function
     );
 
+    // Normalize path separators to forward slashes for consistency across platforms
+    let file = location.file.replace('\\', "/");
     let location_obj = serde_json::json!({
         "class": location.class,
         "function": location.function,
-        "file": location.file,
+        "file": file,
         "begin_line": location.begin_line,
         "begin_column": 0,
     });
