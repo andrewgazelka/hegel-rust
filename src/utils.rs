@@ -10,10 +10,12 @@ pub fn which(name: &str) -> Option<String> {
             return Some(candidate.to_string_lossy().to_string());
         }
         for ext in &extensions {
+            // nocov start -- Windows-only: executable_extensions() returns empty Vec on Unix
             let with_ext = dir.join(format!("{name}{ext}"));
             if with_ext.is_file() {
                 return Some(with_ext.to_string_lossy().to_string());
             }
+            // nocov end
         }
     }
     None
