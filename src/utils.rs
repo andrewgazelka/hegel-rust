@@ -13,6 +13,7 @@ pub fn which(name: &str) -> Option<String> {
 
 /// Panic if `path` exists but is not executable.
 pub fn validate_executable(path: &str) {
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
