@@ -102,10 +102,12 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
             return Some(candidate);
         }
         for ext in &extensions {
+            // nocov start -- Windows-only: executable_extensions() returns empty Vec on Unix
             let with_ext = dir.join(format!("{name}{ext}"));
             if with_ext.is_file() {
                 return Some(with_ext);
             }
+            // nocov end
         }
     }
     None
