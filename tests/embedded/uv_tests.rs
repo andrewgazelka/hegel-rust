@@ -38,13 +38,14 @@ fn test_find_uv_impl_uses_path_uv_when_available() {
 fn test_find_uv_impl_returns_cached_when_not_in_path() {
     let temp = tempfile::tempdir().unwrap();
     let cache = temp.path().to_path_buf();
-    let fake_uv = cache.join("uv");
+    let fake_uv = cache.join(UV_BINARY_NAME);
     std::fs::write(&fake_uv, b"fake uv").unwrap();
     let result = find_uv_impl(None, cache);
     assert_eq!(result, fake_uv.to_string_lossy());
 }
 
 #[test]
+#[cfg(unix)]
 #[should_panic(expected = "Failed to run uv installer")]
 fn test_install_uv_fails_with_bad_sh_command() {
     let temp = tempfile::tempdir().unwrap();
