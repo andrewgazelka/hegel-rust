@@ -8,12 +8,14 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::TempDir;
 
-// cache build output from TempRustProject across tests. Compilation time is substantial
-// (10+ seconds) and this lets us only incur that cost on the first test.
+// Cache build output from TempRustProject across tests within the same binary.
+// Compilation time is substantial (10+ seconds) and this lets us only incur that
+// cost on the first test in each binary.
 //
-// We clear the dir at the start to ensure a fresh environment on each test run.
+// We use a per-process directory to avoid concurrent test binaries (which cargo
+// runs in parallel) destroying each other's in-progress compilations.
 static SHARED_TARGET_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    let path = std::env::temp_dir().join("hegel-test-cargo-target");
+    let path = std::env::temp_dir().join(format!("hegel-test-cargo-target-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     path
