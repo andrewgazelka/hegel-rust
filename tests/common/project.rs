@@ -27,7 +27,12 @@ fn shared_target_dir() -> PathBuf {
 }
 
 // use a unique package name in our Cargo.toml to avoid lock contention of parallel
-// cargo builds within the shared target dir.
+// cargo builds within the shared target dir. The PID prefix disambiguates across
+// sibling test-binary processes that all share `CARGO_TARGET_DIR`: without it,
+// each process starts the counter at 0 and they'd collide on
+// `target/debug/temp_hegel_test_0` (the "shallow" output copy cargo produces for
+// binary crates), which can fail with ETXTBSY if another process's copy is still
+// running.
 static PACKAGE_NAME_ID: AtomicU64 = AtomicU64::new(0);
 
 // First-build gate. A cold `cargo build` of `hegeltest` and its transitive
@@ -58,6 +63,18 @@ fn warmup_shared_target() {
     });
 }
 
+fn write_atomic(path: &Path, content: &[u8]) {
+    // PID + counter keeps the temp name unique across concurrent processes
+    // and across concurrent calls in the same process. `rename(2)` is atomic
+    // on POSIX: a concurrent reader of `path` never sees an in-progress write,
+    // only the old or new full content.
+    static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let tmp_id = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{}", std::process::id(), tmp_id));
+    std::fs::write(&tmp, content).unwrap();
+    std::fs::rename(&tmp, path).unwrap();
+}
+
 fn run_warmup_build(hegel_path: &Path, shared_target: &Path) {
     let warmup_dir = shared_target.join("warmup");
     std::fs::create_dir_all(warmup_dir.join("src")).unwrap();
@@ -66,10 +83,8 @@ fn run_warmup_build(hegel_path: &Path, shared_target: &Path) {
     // lives inside `target/`, which is inside the outer hegeltest
     // workspace, so cargo would otherwise complain that the warmup
     // project looks like it should be a workspace member.
-    std::fs::write(
-        warmup_dir.join("Cargo.toml"),
-        format!(
-            r#"[workspace]
+    let cargo_toml = format!(
+        r#"[workspace]
 
 [package]
 name = "hegel_warmup"
@@ -79,15 +94,20 @@ edition = "2021"
 [dependencies]
 hegeltest = {{ path = "{path}" }}
 "#,
-            path = hegel_path.display(),
-        ),
-    )
-    .unwrap();
-    std::fs::write(warmup_dir.join("src/lib.rs"), "").unwrap();
+        path = hegel_path.display(),
+    );
+    // Write Cargo.toml and src/lib.rs atomically. Sibling test-binary processes
+    // may each run their own warmup concurrently, and a plain `fs::write`
+    // O_TRUNCs the target first — if a peer's cargo is mid-read of the same
+    // file, it would see a truncated byte stream. Writing to a PID-suffixed
+    // temp path and renaming is atomic from the reader's perspective.
+    write_atomic(&warmup_dir.join("Cargo.toml"), cargo_toml.as_bytes());
+    write_atomic(&warmup_dir.join("src/lib.rs"), b"");
 
     let lock_src = hegel_path.join("Cargo.lock");
     if lock_src.exists() {
-        std::fs::copy(&lock_src, warmup_dir.join("Cargo.lock")).unwrap();
+        let lock_bytes = std::fs::read(&lock_src).unwrap();
+        write_atomic(&warmup_dir.join("Cargo.lock"), &lock_bytes);
     }
 
     let output = Command::new(env!("CARGO"))
@@ -127,7 +147,7 @@ impl TempRustProject {
         let project_path = temp_dir.path().to_path_buf();
 
         let id = PACKAGE_NAME_ID.fetch_add(1, Ordering::Relaxed);
-        let crate_name = format!("temp_hegel_test_{}", id);
+        let crate_name = format!("temp_hegel_test_{}_{}", std::process::id(), id);
 
         // Copy the main project's Cargo.lock so the temp project uses the same
         // pinned dependency versions. Without this, cargo resolves fresh and may
