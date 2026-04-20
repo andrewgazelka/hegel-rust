@@ -1,11 +1,12 @@
 pub use crate::backend::{DataSource, DataSourceError};
 use crate::generators::Generator;
 use ciborium::Value;
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::generators::value;
 
@@ -49,8 +50,21 @@ fn panic_on_data_source_error(e: DataSourceError) -> ! {
 }
 
 pub(crate) struct TestCaseGlobalData {
-    data_source: Box<dyn DataSource>,
     is_last_run: bool,
+    /// Shared, reentrant lock around the state a test case mutates through its
+    /// data source and draw-tracking bookkeeping.
+    ///
+    /// All top-level `TestCase` methods acquire this lock for the duration of a
+    /// single operation. Reentrance lets nested calls (e.g. a generator inside
+    /// `draw` calling `start_span`) re-acquire on the same thread without
+    /// deadlock. Clones of a `TestCase` share this lock, so moving a clone to a
+    /// different thread serialises generation between the two threads while
+    /// still allowing each thread to drive its own draws.
+    shared: ReentrantMutex<SharedState>,
+}
+
+pub(crate) struct SharedState {
+    data_source: Box<dyn DataSource>,
     draw_state: RefCell<DrawState>,
 }
 
@@ -72,6 +86,13 @@ pub(crate) struct TestCaseLocalData {
 /// This is passed to `#[hegel::test]` functions and provides methods
 /// for drawing values, making assumptions, and recording notes.
 ///
+/// `TestCase` is `Send` but not `Sync`: a clone may be moved to another thread
+/// and used for data generation there. A shared reentrant lock serialises
+/// generation between threads, so each top-level operation (e.g. a single
+/// `draw`) runs atomically. Interleaved concurrent generation is not
+/// deterministic; threading is primarily intended for patterns where work on
+/// one thread finishes before another thread uses the test case.
+///
 /// # Example
 ///
 /// ```no_run
@@ -85,7 +106,10 @@ pub(crate) struct TestCaseLocalData {
 /// }
 /// ```
 pub struct TestCase {
-    global: Rc<TestCaseGlobalData>,
+    global: Arc<TestCaseGlobalData>,
+    // RefCell makes `TestCase: !Sync`. Local data is per-clone: each clone gets
+    // its own span depth, indent, and on_draw. Concurrent use across threads
+    // therefore requires cloning, which is enforced by the `!Sync` bound.
     local: RefCell<TestCaseLocalData>,
 }
 
@@ -105,7 +129,7 @@ impl std::fmt::Debug for TestCase {
 }
 
 /// A callback invoked for each line of draw/note output during the final replay.
-pub(crate) type OutputSink = Rc<dyn Fn(&str)>;
+pub(crate) type OutputSink = Arc<dyn Fn(&str) + Send + Sync>;
 
 thread_local! {
     static OUTPUT_OVERRIDE: RefCell<Option<OutputSink>> = const { RefCell::new(None) };
@@ -140,17 +164,19 @@ impl TestCase {
         let override_sink = OUTPUT_OVERRIDE.with(|cell| cell.borrow().clone());
         let on_draw: OutputSink = match override_sink {
             Some(sink) if is_last_run => sink,
-            _ if is_last_run => Rc::new(|msg| eprintln!("{}", msg)),
-            _ => Rc::new(|_| {}),
+            _ if is_last_run => Arc::new(|msg| eprintln!("{}", msg)),
+            _ => Arc::new(|_| {}),
         };
         TestCase {
-            global: Rc::new(TestCaseGlobalData {
-                data_source,
+            global: Arc::new(TestCaseGlobalData {
                 is_last_run,
-                draw_state: RefCell::new(DrawState {
-                    named_draw_counts: HashMap::new(),
-                    named_draw_repeatable: HashMap::new(),
-                    allocated_display_names: HashSet::new(),
+                shared: ReentrantMutex::new(SharedState {
+                    data_source,
+                    draw_state: RefCell::new(DrawState {
+                        named_draw_counts: HashMap::new(),
+                        named_draw_repeatable: HashMap::new(),
+                        allocated_display_names: HashSet::new(),
+                    }),
                 }),
             }),
             local: RefCell::new(TestCaseLocalData {
@@ -159,6 +185,18 @@ impl TestCase {
                 on_draw,
             }),
         }
+    }
+
+    /// Acquire the shared reentrant lock for the duration of `f`.
+    ///
+    /// Every top-level `TestCase` operation (draw, assume, note, span
+    /// manipulation, raw schema-based generation) runs inside this helper, so
+    /// concurrent operations from different threads serialise but recursive
+    /// operations on the same thread reuse the existing guard without
+    /// deadlocking.
+    fn with_shared<R>(&self, f: impl FnOnce(&SharedState) -> R) -> R {
+        let guard: ReentrantMutexGuard<'_, SharedState> = self.global.shared.lock();
+        f(&guard)
     }
 
     /// Draw a value from a generator.
@@ -201,11 +239,13 @@ impl TestCase {
         name: &str,
         repeatable: bool,
     ) -> T {
-        let value = generator.do_draw(self);
-        if self.local.borrow().span_depth == 0 {
-            self.record_named_draw(&value, name, repeatable);
-        }
-        value
+        self.with_shared(|shared| {
+            let value = generator.do_draw(self);
+            if self.local.borrow().span_depth == 0 {
+                self.record_named_draw(shared, &value, name, repeatable);
+            }
+            value
+        })
     }
 
     /// Draw a value from a generator without recording it in the output.
@@ -213,7 +253,7 @@ impl TestCase {
     /// Unlike [`draw`](Self::draw), this does not require `T: Debug` and
     /// will not print the value in the failing-test summary.
     pub fn draw_silent<T>(&self, generator: impl Generator<T>) -> T {
-        generator.do_draw(self)
+        self.with_shared(|_| generator.do_draw(self))
     }
 
     /// Assume a condition is true. If false, reject the current test input.
@@ -275,12 +315,14 @@ impl TestCase {
     /// }
     /// ```
     pub fn note(&self, message: &str) {
-        if !self.global.is_last_run {
-            return;
-        }
-        let local = self.local.borrow();
-        let indent = local.indent;
-        (local.on_draw)(&format!("{:indent$}{}", "", message, indent = indent));
+        self.with_shared(|_| {
+            if !self.global.is_last_run {
+                return;
+            }
+            let local = self.local.borrow();
+            let indent = local.indent;
+            (local.on_draw)(&format!("{:indent$}{}", "", message, indent = indent));
+        })
     }
 
     /// Run `body` in a loop that should runs "logically infinitely" or until
@@ -384,8 +426,14 @@ impl TestCase {
         }
     }
 
-    fn record_named_draw<T: std::fmt::Debug>(&self, value: &T, name: &str, repeatable: bool) {
-        let mut draw_state = self.global.draw_state.borrow_mut();
+    fn record_named_draw<T: std::fmt::Debug>(
+        &self,
+        shared: &SharedState,
+        value: &T,
+        name: &str,
+        repeatable: bool,
+    ) {
+        let mut draw_state = shared.draw_state.borrow_mut();
 
         match draw_state.named_draw_repeatable.get(name) {
             Some(&prev) if prev != repeatable => {
@@ -446,40 +494,62 @@ impl TestCase {
         ));
     }
 
-    /// Access the data source for this test case.
-    pub(crate) fn data_source(&self) -> &dyn DataSource {
-        self.global.data_source.as_ref()
+    /// Run `f` with access to this test case's data source.
+    ///
+    /// Acquires the shared reentrant lock so the closure sees a consistent
+    /// view of the data source; nested `with_data_source` calls on the same
+    /// thread reuse the existing guard.
+    pub(crate) fn with_data_source<R>(&self, f: impl FnOnce(&dyn DataSource) -> R) -> R {
+        self.with_shared(|shared| f(shared.data_source.as_ref()))
+    }
+
+    /// Report whether the test case has been aborted (StopTest/overflow).
+    ///
+    /// Used by the runner to decide whether to send `mark_complete`. Acquires
+    /// the shared lock so it observes a consistent view of the data source
+    /// even if another thread is mid-draw.
+    pub(crate) fn test_aborted(&self) -> bool {
+        self.with_data_source(|ds| ds.test_aborted())
+    }
+
+    /// Send `mark_complete` on this test case's data source.
+    pub(crate) fn mark_complete(&self, status: &str, origin: Option<&str>) {
+        self.with_data_source(|ds| ds.mark_complete(status, origin));
     }
 
     #[doc(hidden)]
     pub fn start_span(&self, label: u64) {
-        self.local.borrow_mut().span_depth += 1;
-        if let Err(e) = self.data_source().start_span(label) {
-            // nocov start
-            let mut local = self.local.borrow_mut();
-            assert!(local.span_depth > 0);
-            local.span_depth -= 1;
-            drop(local);
-            panic_on_data_source_error(e);
-            // nocov end
-        }
+        self.with_shared(|shared| {
+            self.local.borrow_mut().span_depth += 1;
+            if let Err(e) = shared.data_source.start_span(label) {
+                // nocov start
+                let mut local = self.local.borrow_mut();
+                assert!(local.span_depth > 0);
+                local.span_depth -= 1;
+                drop(local);
+                panic_on_data_source_error(e);
+                // nocov end
+            }
+        })
     }
 
     #[doc(hidden)]
     pub fn stop_span(&self, discard: bool) {
-        {
-            let mut local = self.local.borrow_mut();
-            assert!(local.span_depth > 0);
-            local.span_depth -= 1;
-        }
-        let _ = self.data_source().stop_span(discard);
+        self.with_shared(|shared| {
+            {
+                let mut local = self.local.borrow_mut();
+                assert!(local.span_depth > 0);
+                local.span_depth -= 1;
+            }
+            let _ = shared.data_source.stop_span(discard);
+        })
     }
 }
 
 /// Send a schema to the backend and return the raw CBOR response.
 #[doc(hidden)]
 pub fn generate_raw(tc: &TestCase, schema: &Value) -> Value {
-    match tc.data_source().generate(schema) {
+    match tc.with_data_source(|ds| ds.generate(schema)) {
         Ok(v) => v,
         Err(e) => panic_on_data_source_error(e),
     }
@@ -527,11 +597,10 @@ impl<'a> Collection<'a> {
 
     fn ensure_initialized(&mut self) -> &str {
         if self.handle.is_none() {
-            let name = match self
-                .tc
-                .data_source()
-                .new_collection(self.min_size as u64, self.max_size.map(|m| m as u64))
-            {
+            let result = self.tc.with_data_source(|ds| {
+                ds.new_collection(self.min_size as u64, self.max_size.map(|m| m as u64))
+            });
+            let name = match result {
                 Ok(name) => name,
                 Err(e) => panic_on_data_source_error(e), // nocov
             };
@@ -546,7 +615,7 @@ impl<'a> Collection<'a> {
             return false; // nocov
         }
         let handle = self.ensure_initialized().to_string();
-        let result = match self.tc.data_source().collection_more(&handle) {
+        let result = match self.tc.with_data_source(|ds| ds.collection_more(&handle)) {
             Ok(b) => b,
             Err(e) => {
                 self.finished = true;
@@ -560,15 +629,17 @@ impl<'a> Collection<'a> {
     }
 
     /// Reject the last element (don't count it towards the size budget).
-    // nocov start
     pub fn reject(&mut self, why: Option<&str>) {
+        // nocov start
         if self.finished {
             return;
         }
         let handle = self.ensure_initialized().to_string();
-        let _ = self.tc.data_source().collection_reject(&handle, why);
+        let _ = self
+            .tc
+            .with_data_source(|ds| ds.collection_reject(&handle, why));
+        // nocov end
     }
-    // nocov end
 }
 
 #[doc(hidden)]
