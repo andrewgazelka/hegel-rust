@@ -1,15 +1,11 @@
 use super::*;
 
-/// Return an ExitStatus representing failure, cross-platform.
 fn exit_failure_status() -> std::process::ExitStatus {
     #[cfg(unix)]
-    {
-        Command::new("false").status().unwrap()
-    }
+    use std::os::unix::process::ExitStatusExt;
     #[cfg(windows)]
-    {
-        Command::new("cmd").args(["/C", "exit 1"]).status().unwrap()
-    }
+    use std::os::windows::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(1)
 }
 
 #[test]
