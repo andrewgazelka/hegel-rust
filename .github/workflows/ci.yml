@@ -61,21 +61,12 @@ jobs:
         run: rustup toolchain install ${{ matrix.rust }} --profile minimal && rustup default ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - if: runner.os == 'Linux'
-        uses: ./.github/actions/install-tools
+      - uses: ./.github/actions/install-tools
         with:
           tools: just uv
 
-      # hegel-rust's bundled uv installer is a sh script, so it can't bootstrap
-      # uv on Windows. Set up uv here; once it's on PATH, hegel-rust drives
-      # hegel-core installation via uv the same way it does on Linux.
-      - if: runner.os == 'Windows'
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
       - name: Run tests
-        env:
-          RUST_BACKTRACE: "1"
-        run: cargo test
+        run: just check-tests
 
   test-all-features:
     name: test-all-features (${{ matrix.os }}, ${{ matrix.rust }})
@@ -90,16 +81,16 @@ jobs:
           # a compile_error! on Windows. Drop back to just `rand`.
           - os: windows-latest
             rust: "1.86"
-            features: --features rand
+            recipe: check-tests-rand-feature
           - os: windows-latest
             rust: stable
-            features: --features rand
+            recipe: check-tests-rand-feature
           - os: ubuntu-latest
             rust: "1.86"
-            features: --all-features
+            recipe: check-tests-all-features
           - os: ubuntu-latest
             rust: stable
-            features: --all-features
+            recipe: check-tests-all-features
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -109,18 +100,12 @@ jobs:
         run: rustup toolchain install ${{ matrix.rust }} --profile minimal && rustup default ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - if: runner.os == 'Linux'
-        uses: ./.github/actions/install-tools
+      - uses: ./.github/actions/install-tools
         with:
           tools: just uv
 
-      - if: runner.os == 'Windows'
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
-      - name: Run tests with all features
-        env:
-          RUST_BACKTRACE: "1"
-        run: cargo test ${{ matrix.features }}
+      - name: Run tests
+        run: just ${{ matrix.recipe }}
 
   test-min-protocol:
     name: test-min-protocol
