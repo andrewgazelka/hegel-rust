@@ -86,13 +86,6 @@ pub(crate) struct TestCaseLocalData {
 /// This is passed to `#[hegel::test]` functions and provides methods
 /// for drawing values, making assumptions, and recording notes.
 ///
-/// `TestCase` is `Send` but not `Sync`: a clone may be moved to another thread
-/// and used for data generation there. A shared reentrant lock serialises
-/// generation between threads, so each top-level operation (e.g. a single
-/// `draw`) runs atomically. Interleaved concurrent generation is not
-/// deterministic; threading is primarily intended for patterns where work on
-/// one thread finishes before another thread uses the test case.
-///
 /// # Example
 ///
 /// ```no_run
@@ -105,6 +98,78 @@ pub(crate) struct TestCaseLocalData {
 ///     tc.note(&format!("x = {}", x));
 /// }
 /// ```
+///
+/// # Threading
+///
+/// `TestCase` is `Send` but not `Sync`. To drive generation from another
+/// thread, clone the test case and move the clone. Clones share the same
+/// underlying backend connection — they are views onto one test case, not
+/// independent test cases.
+///
+/// ```no_run
+/// use hegel::generators as gs;
+///
+/// #[hegel::test]
+/// fn my_test(tc: hegel::TestCase) {
+///     let tc_worker = tc.clone();
+///     let handle = std::thread::spawn(move || {
+///         tc_worker.draw(gs::integers::<i32>())
+///     });
+///     let n = handle.join().unwrap();
+///     let _b: bool = tc.draw(gs::booleans());
+///     let _ = n;
+/// }
+/// ```
+///
+/// ## What is guaranteed
+///
+/// Each top-level operation (`draw`, `draw_silent`, `note`, takes a shared
+/// reentrant lock for its entire duration, so a single operation always
+/// runs atomically with respect to other threads holding a clone. The
+/// lock is reentrant, so generators that call back  into `TestCase` on
+/// the same thread do not deadlock.
+///
+/// This is enough for patterns where threads do not race on generation —
+/// for example:
+///
+/// - Spawn a worker, let it draw, `join` it, then continue on the main
+///   thread.
+/// - Repeatedly spawn-and-join one worker at a time.
+/// - Any pattern where exactly one thread is drawing at a time, with a
+///   happens-before relationship (join, channel receive, barrier) between
+///   each thread's work.
+///
+/// ## What is not guaranteed
+///
+/// Concurrent generation will get progressively better over time, but
+/// right now should be considered a borderline-internal feature. If
+/// you do not know exactly what you're doing it probably won't work.
+///
+/// The main things that will definitely cause things to go wrong are:
+///
+/// Two or more threads drawing concurrently from clones of the same
+/// `TestCase` is allowed by the type system but is **not deterministic**:
+/// the order in which draws interleave depends on thread scheduling, and
+/// the backend has no way to reproduce that order on replay. In practice
+/// this means such tests may:
+///
+/// - Produce different values on successive runs of the same seed.
+/// - Shrink poorly or not at all.
+/// - Surface backend errors (e.g. `StopTest`) in one thread caused by
+///   another thread's draws exhausting the budget.
+///
+/// Additionally, if within a data generator (e.g. in `composite`) you
+/// wait on the results of another thread that is also generating data,
+/// you will get a deadlock.
+///
+/// ## Panics inside spawned threads
+///
+/// If a worker thread panics with an assumption failure or a backend
+/// `StopTest`, that panic stays inside the thread's `JoinHandle` until
+/// the main thread joins it. The main thread is responsible for
+/// propagating (or suppressing) the panic — typically by calling
+/// `handle.join().unwrap()`, which resumes the panic on the main thread
+/// so Hegel's runner can observe it.
 pub struct TestCase {
     global: Arc<TestCaseGlobalData>,
     // RefCell makes `TestCase: !Sync`. Local data is per-clone: each clone gets
