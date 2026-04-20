@@ -8,6 +8,30 @@ fn exit_failure_status() -> std::process::ExitStatus {
     std::process::ExitStatus::from_raw(1)
 }
 
+fn spawn_exit_0() -> std::process::Child {
+    #[cfg(unix)]
+    return Command::new("true").spawn().unwrap();
+    #[cfg(windows)]
+    return Command::new("cmd").args(["/C", "exit 0"]).spawn().unwrap();
+}
+
+fn spawn_exit_1() -> std::process::Child {
+    #[cfg(unix)]
+    return Command::new("false").spawn().unwrap();
+    #[cfg(windows)]
+    return Command::new("cmd").args(["/C", "exit 1"]).spawn().unwrap();
+}
+
+fn spawn_long_running() -> std::process::Child {
+    #[cfg(unix)]
+    return Command::new("sleep").arg("100").spawn().unwrap();
+    #[cfg(windows)]
+    return Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 100"])
+        .spawn()
+        .unwrap();
+}
+
 #[test]
 fn test_settings_verbosity() {
     let _ = Settings::new().verbosity(Verbosity::Debug);
@@ -57,23 +81,14 @@ fn test_settings_new_in_ci_disables_database() {
 
 #[test]
 fn test_wait_for_exit_child_exits() {
-    #[cfg(unix)]
-    let mut child = Command::new("true").spawn().unwrap();
-    #[cfg(windows)]
-    let mut child = Command::new("cmd").args(["/C", "exit 0"]).spawn().unwrap();
+    let mut child = spawn_exit_0();
     let result = wait_for_exit(&mut child, Duration::from_secs(5));
     assert!(result.is_some());
 }
 
 #[test]
 fn test_wait_for_exit_timeout() {
-    #[cfg(unix)]
-    let mut child = Command::new("sleep").arg("100").spawn().unwrap();
-    #[cfg(windows)]
-    let mut child = Command::new("cmd")
-        .args(["/C", "ping -n 100 127.0.0.1 >nul"])
-        .spawn()
-        .unwrap();
+    let mut child = spawn_long_running();
     let result = wait_for_exit(&mut child, Duration::from_millis(50));
     assert!(result.is_none());
     let _ = child.kill();
@@ -204,10 +219,7 @@ fn test_resolve_hegel_path_nonexistent_absolute() {
 #[test]
 #[should_panic(expected = "failed during startup")]
 fn test_handle_handshake_failure_child_exited() {
-    #[cfg(unix)]
-    let mut child = Command::new("false").spawn().unwrap();
-    #[cfg(windows)]
-    let mut child = Command::new("cmd").args(["/C", "exit 1"]).spawn().unwrap();
+    let mut child = spawn_exit_1();
     // Wait for the child to fully exit. Without this, there's a race condition:
     // wait_for_exit inside handle_handshake_failure might not see the exit in
     // its 100ms window, hitting the "child still running" branch instead.
@@ -222,13 +234,7 @@ fn test_handle_handshake_failure_child_exited() {
 #[test]
 #[should_panic(expected = "Possibly bad virtualenv")]
 fn test_handle_handshake_failure_child_hangs() {
-    #[cfg(unix)]
-    let mut child = Command::new("sleep").arg("100").spawn().unwrap();
-    #[cfg(windows)]
-    let mut child = Command::new("cmd")
-        .args(["/C", "ping -n 100 127.0.0.1 >nul"])
-        .spawn()
-        .unwrap();
+    let mut child = spawn_long_running();
     handle_handshake_failure(&mut child, None, "test error");
 }
 
