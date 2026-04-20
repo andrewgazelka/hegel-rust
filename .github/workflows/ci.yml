@@ -43,7 +43,9 @@ jobs:
         run: cargo package --workspace
 
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.rust }})
+    # Keep the name matching the branch-protection required checks on Linux
+    # (`test (1.86)` / `test (stable)`); Windows variants get a suffix.
+    name: test (${{ matrix.rust }}${{ matrix.os == 'windows-latest' && ', windows' || '' }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -69,7 +71,7 @@ jobs:
         run: just check-tests
 
   test-all-features:
-    name: test-all-features (${{ matrix.os }}, ${{ matrix.rust }})
+    name: test-all-features (${{ matrix.rust }}${{ matrix.os == 'windows-latest' && ', windows' || '' }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
