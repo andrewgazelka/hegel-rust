@@ -6,14 +6,6 @@ struct DeferredGenerator<T> {
     inner: Arc<OnceLock<BoxedGenerator<'static, T>>>,
 }
 
-impl<T> Clone for DeferredGenerator<T> {
-    fn clone(&self) -> Self {
-        DeferredGenerator {
-            inner: Arc::clone(&self.inner),
-        }
-    }
-}
-
 impl<T: Send + Sync> Generator<T> for DeferredGenerator<T> {
     fn do_draw(&self, tc: &TestCase) -> T {
         self.inner
