@@ -184,10 +184,7 @@ fn test_single_test_case_stateful_runs_forever() {
         "reached 200 steps",
     );
 
-    assert_eq!(
-        step_count.load(std::sync::atomic::Ordering::Relaxed),
-        200
-    );
+    assert_eq!(step_count.load(std::sync::atomic::Ordering::Relaxed), 200);
 }
 
 #[test]
