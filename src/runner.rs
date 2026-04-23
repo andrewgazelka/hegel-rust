@@ -1215,6 +1215,31 @@ impl Settings {
         }
     }
 
+    /// Return the execution mode.
+    pub fn mode_value(&self) -> Mode {
+        self.mode
+    }
+
+    /// Return the configured number of test cases.
+    pub fn test_cases_value(&self) -> u64 {
+        self.test_cases
+    }
+
+    /// Return the configured verbosity.
+    pub fn verbosity_value(&self) -> Verbosity {
+        self.verbosity
+    }
+
+    /// Return the configured explicit seed, if any.
+    pub fn seed_value(&self) -> Option<u64> {
+        self.seed
+    }
+
+    /// Return whether derandomization is enabled.
+    pub fn derandomize_value(&self) -> bool {
+        self.derandomize
+    }
+
     /// Set the execution mode. Defaults to [`Mode::TestRun`].
     pub fn mode(mut self, mode: Mode) -> Self {
         self.mode = mode;
@@ -1367,9 +1392,17 @@ where
     ///
     /// Panics if any test case fails.
     pub fn run(self) {
-        init_panic_hook();
+        self.run_with_runner(ServerTestRunner);
+    }
 
-        let runner = ServerTestRunner;
+    /// Run the property-based tests with a custom runner.
+    ///
+    /// This is the extension point for alternative backends that still want
+    /// Hegel's normal test-case execution, panic handling, and test builder API.
+    ///
+    /// Panics if any test case fails.
+    pub fn run_with_runner(self, runner: impl TestRunner) {
+        init_panic_hook();
         let mut test_fn = self.test_fn;
         let got_interesting = AtomicBool::new(false);
 
