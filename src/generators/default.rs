@@ -6,7 +6,47 @@ use super::{
 };
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::path::PathBuf;
 use std::time::Duration;
+
+fn path_segment_generator() -> BoxedGenerator<'static, String> {
+    use super::{just, one_of};
+
+    one_of([
+        text().max_size(12).boxed(),
+        just(".".to_string()).boxed(),
+        just("..".to_string()).boxed(),
+        just(String::new()).boxed(),
+        text()
+            .min_size(1)
+            .max_size(8)
+            .map(|segment| format!(".{segment}"))
+            .boxed(),
+        text().min_size(200).max_size(255).boxed(),
+        just(" ".to_string()).boxed(),
+    ])
+    .boxed()
+}
+
+fn build_pathbuf(segments: Vec<String>, absolute: bool) -> PathBuf {
+    let path: PathBuf = segments.iter().collect();
+    if segments.is_empty() || !absolute {
+        return path;
+    }
+
+    absolute_path_root().join(path)
+}
+
+fn absolute_path_root() -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from("C:\\")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/")
+    }
+}
 
 /// Trait for types that have a default generator.
 ///
@@ -203,6 +243,38 @@ impl DefaultGenerator for Duration {
     }
 }
 
+/// Generates filesystem paths covering common edge cases.
+///
+/// The generator produces paths from 0 to 8 segments joined with the
+/// platform path separator. Segments are drawn from a mix of:
+///
+/// - Short alphanumeric text (the common case)
+/// - `.` and `..` (traversal)
+/// - Empty string (consecutive separators / trailing slash)
+/// - Dot-prefixed names (`.hidden`)
+/// - Long names near the typical 255-byte NAME_MAX limit
+/// - Whitespace-only names
+///
+/// Roughly 10% of generated paths are absolute (prefixed with `/` on
+/// Unix, `C:\` on Windows). An empty segment vector produces `""`,
+/// the empty path.
+impl DefaultGenerator for PathBuf {
+    type Generator = BoxedGenerator<'static, PathBuf>;
+    fn default_generator() -> Self::Generator {
+        use super::sampled_from;
+
+        sampled_from(&[
+            false, false, false, false, false, false, false, false, false, true,
+        ])
+        .flat_map(|absolute| {
+            vecs(path_segment_generator())
+                .max_size(8)
+                .map(move |segments| build_pathbuf(segments, absolute))
+        })
+        .boxed()
+    }
+}
+
 impl<K: DefaultGenerator + 'static, V: DefaultGenerator + 'static> DefaultGenerator
     for HashMap<K, V>
 where
@@ -315,4 +387,31 @@ macro_rules! derive_generator {
             }
         };
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{absolute_path_root, build_pathbuf};
+    use std::path::PathBuf;
+
+    #[test]
+    fn empty_absolute_path_stays_empty() {
+        assert_eq!(build_pathbuf(Vec::new(), true), PathBuf::new());
+    }
+
+    #[test]
+    fn relative_path_stays_relative() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], false),
+            PathBuf::from("alpha").join("beta")
+        );
+    }
+
+    #[test]
+    fn absolute_path_uses_platform_root() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], true),
+            absolute_path_root().join("alpha").join("beta")
+        );
+    }
 }
