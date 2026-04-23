@@ -1,12 +1,12 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use ciborium::Value;
 use hegel::{
-    backend::{DataSource, DataSourceError, TestCaseResult, TestRunResult, TestRunner},
     Hegel, Mode, Settings, TestCase, Verbosity,
+    backend::{DataSource, DataSourceError, TestCaseResult, TestRunResult, TestRunner},
 };
 
 struct NoopDataSource;

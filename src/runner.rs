@@ -1,15 +1,15 @@
-use crate::antithesis::{is_running_in_antithesis, TestLocation};
+use crate::antithesis::{TestLocation, is_running_in_antithesis};
 use crate::backend::{DataSource, DataSourceError, TestCaseResult, TestRunResult, TestRunner};
 use crate::cbor_utils::{as_bool, as_text, as_u64, cbor_map, map_get, map_insert};
 use crate::control::{currently_in_test_context, with_test_context};
-use crate::protocol::{Connection, Stream, HANDSHAKE_STRING};
-use crate::test_case::{TestCase, ASSUME_FAIL_STRING, LOOP_DONE_STRING, STOP_TEST_STRING};
+use crate::protocol::{Connection, HANDSHAKE_STRING, Stream};
+use crate::test_case::{ASSUME_FAIL_STRING, LOOP_DONE_STRING, STOP_TEST_STRING, TestCase};
 use ciborium::Value;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
-use std::panic::{self, catch_unwind, AssertUnwindSafe};
+use std::panic::{self, AssertUnwindSafe, catch_unwind};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Once};
@@ -369,16 +369,18 @@ impl HegelSession {
         // connection. Polls try_wait() so the lock is not held while waiting,
         // leaving it available for __test_kill_server to call kill().
         let conn_for_monitor = Arc::clone(&connection);
-        std::thread::spawn(move || loop {
-            {
-                let mut guard = child_for_monitor.lock().unwrap();
-                if matches!(guard.try_wait(), Ok(Some(_))) {
-                    drop(guard);
-                    conn_for_monitor.mark_server_exited();
-                    return;
+        std::thread::spawn(move || {
+            loop {
+                {
+                    let mut guard = child_for_monitor.lock().unwrap();
+                    if matches!(guard.try_wait(), Ok(Some(_))) {
+                        drop(guard);
+                        conn_for_monitor.mark_server_exited();
+                        return;
+                    }
                 }
+                std::thread::sleep(Duration::from_millis(10));
             }
-            std::thread::sleep(Duration::from_millis(10));
         });
 
         HegelSession {
