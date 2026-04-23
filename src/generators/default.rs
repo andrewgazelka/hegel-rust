@@ -9,6 +9,45 @@ use std::hash::Hash;
 use std::path::PathBuf;
 use std::time::Duration;
 
+fn path_segment_generator() -> BoxedGenerator<'static, String> {
+    use super::{just, one_of};
+
+    one_of([
+        text().max_size(12).boxed(),
+        just(".".to_string()).boxed(),
+        just("..".to_string()).boxed(),
+        just(String::new()).boxed(),
+        text()
+            .min_size(1)
+            .max_size(8)
+            .map(|segment| format!(".{segment}"))
+            .boxed(),
+        text().min_size(200).max_size(255).boxed(),
+        just(" ".to_string()).boxed(),
+    ])
+    .boxed()
+}
+
+fn build_pathbuf(segments: Vec<String>, absolute: bool) -> PathBuf {
+    let path: PathBuf = segments.iter().collect();
+    if segments.is_empty() || !absolute {
+        return path;
+    }
+
+    absolute_path_root().join(path)
+}
+
+fn absolute_path_root() -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from("C:\\")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/")
+    }
+}
+
 /// Trait for types that have a default generator.
 ///
 /// This is used by derive macros to automatically generate values for fields.
@@ -222,51 +261,44 @@ impl DefaultGenerator for Duration {
 impl DefaultGenerator for PathBuf {
     type Generator = BoxedGenerator<'static, PathBuf>;
     fn default_generator() -> Self::Generator {
-        use super::{just, one_of};
+        use super::sampled_from;
 
-        let segment = one_of([
-            // common short text
-            text().max_size(12).boxed(),
-            // traversal
-            just(".".to_string()).boxed(),
-            just("..".to_string()).boxed(),
-            // empty segment (trailing/consecutive separators)
-            just(String::new()).boxed(),
-            // dot-prefixed
-            text()
-                .min_size(1)
+        sampled_from(&[
+            false, false, false, false, false, false, false, false, false, true,
+        ])
+        .flat_map(|absolute| {
+            vecs(path_segment_generator())
                 .max_size(8)
-                .map(|s| format!(".{s}"))
-                .boxed(),
-            // long segment near NAME_MAX
-            text().min_size(200).max_size(255).boxed(),
-            // whitespace-only
-            just(" ".to_string()).boxed(),
-        ]);
+                .map(move |segments| build_pathbuf(segments, absolute))
+        })
+        .boxed()
+    }
+}
 
-        vecs(segment)
-            .max_size(8)
-            .map(|segs| {
-                let rel: PathBuf = segs.iter().collect();
-                // ~10% absolute paths
-                if segs.first().is_some_and(|s| s.len() % 10 == 0) {
-                    #[cfg(unix)]
-                    {
-                        PathBuf::from("/").join(rel)
-                    }
-                    #[cfg(windows)]
-                    {
-                        PathBuf::from("C:\\").join(rel)
-                    }
-                    #[cfg(not(any(unix, windows)))]
-                    {
-                        PathBuf::from("/").join(rel)
-                    }
-                } else {
-                    rel
-                }
-            })
-            .boxed()
+#[cfg(test)]
+mod tests {
+    use super::{absolute_path_root, build_pathbuf};
+    use std::path::PathBuf;
+
+    #[test]
+    fn empty_absolute_path_stays_empty() {
+        assert_eq!(build_pathbuf(Vec::new(), true), PathBuf::new());
+    }
+
+    #[test]
+    fn relative_path_stays_relative() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], false),
+            PathBuf::from("alpha").join("beta")
+        );
+    }
+
+    #[test]
+    fn absolute_path_uses_platform_root() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], true),
+            absolute_path_root().join("alpha").join("beta")
+        );
     }
 }
 
