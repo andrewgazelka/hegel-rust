@@ -275,33 +275,6 @@ impl DefaultGenerator for PathBuf {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{absolute_path_root, build_pathbuf};
-    use std::path::PathBuf;
-
-    #[test]
-    fn empty_absolute_path_stays_empty() {
-        assert_eq!(build_pathbuf(Vec::new(), true), PathBuf::new());
-    }
-
-    #[test]
-    fn relative_path_stays_relative() {
-        assert_eq!(
-            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], false),
-            PathBuf::from("alpha").join("beta")
-        );
-    }
-
-    #[test]
-    fn absolute_path_uses_platform_root() {
-        assert_eq!(
-            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], true),
-            absolute_path_root().join("alpha").join("beta")
-        );
-    }
-}
-
 impl<K: DefaultGenerator + 'static, V: DefaultGenerator + 'static> DefaultGenerator
     for HashMap<K, V>
 where
@@ -414,4 +387,31 @@ macro_rules! derive_generator {
             }
         };
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{absolute_path_root, build_pathbuf};
+    use std::path::PathBuf;
+
+    #[test]
+    fn empty_absolute_path_stays_empty() {
+        assert_eq!(build_pathbuf(Vec::new(), true), PathBuf::new());
+    }
+
+    #[test]
+    fn relative_path_stays_relative() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], false),
+            PathBuf::from("alpha").join("beta")
+        );
+    }
+
+    #[test]
+    fn absolute_path_uses_platform_root() {
+        assert_eq!(
+            build_pathbuf(vec!["alpha".to_string(), "beta".to_string()], true),
+            absolute_path_root().join("alpha").join("beta")
+        );
+    }
 }
