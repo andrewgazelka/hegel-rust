@@ -50,6 +50,22 @@ impl Float for f64 {
     }
 }
 
+/// Less-than-or-equal under sign-aware ordering, where `-0.0 < +0.0`.
+///
+/// IEEE 754 considers `+0.0` and `-0.0` equal under `<=`, but Hypothesis and
+/// the native backend treat `-0.0` as strictly less than `+0.0`. Mirrors
+/// `sign_aware_lte` in hypothesis (`strategies/_internal/numbers.py`) and
+/// `native/core/choices.rs`.
+pub(crate) fn sign_aware_lte<T: Float>(a: T, b: T) -> bool {
+    let a = a.to_f64();
+    let b = b.to_f64();
+    if a == 0.0 && b == 0.0 {
+        a.is_sign_negative() || b.is_sign_positive()
+    } else {
+        a <= b
+    }
+}
+
 /// Generator for integer values. Created by [`integers()`].
 ///
 /// Bounds default to the type's full range.
@@ -175,15 +191,9 @@ impl<T: Float + serde::Serialize> FloatGenerator<T> {
 
         if let (Some(min), Some(max)) = (self.min, self.max) {
             assert!(min <= max, "Cannot have max_value < min_value");
-            // Reject the sign-aware-empty range min=+0.0, max=-0.0. Plain `<=`
-            // considers these equal but Hypothesis (and the native backend)
-            // treat -0.0 as strictly less than 0.0 — so this range contains
-            // no valid floats. See hypothesis's strategies/_internal/numbers.py
-            // (`bad_zero_bounds`) and native/core/choices.rs::sign_aware_lte.
-            let min_f = min.to_f64();
-            let max_f = max.to_f64();
-            if min_f == 0.0 && max_f == 0.0 && min_f.is_sign_positive() && max_f.is_sign_negative()
-            {
+            // Reject the sign-aware-empty range min=+0.0, max=-0.0: the
+            // backends treat -0.0 < +0.0, so this range contains no floats.
+            if !sign_aware_lte(min, max) {
                 panic!(
                     "InvalidArgument: There are no {width}-bit floating-point \
                      values between min_value=0.0 and max_value=-0.0"
@@ -276,3 +286,7 @@ pub fn floats<T: Float + serde::de::DeserializeOwned + serde::Serialize + Send +
         allow_infinity: None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/embedded/generators/numeric_tests.rs"]
+mod tests;
