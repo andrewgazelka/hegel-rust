@@ -1,8 +1,8 @@
 use crate::common::utils::{assert_all_examples, check_can_generate_examples};
 use hegel::extras::jiff as jiff_gs;
 use hegel::generators::{self as gs, Generator};
-use jiff::Zoned;
 use jiff::tz::{AmbiguousOffset, Offset, TimeZone};
+use jiff::{Timestamp, Zoned};
 
 // ---------------------------------------------------------------------------
 // tz::Offset
@@ -98,6 +98,23 @@ fn test_jiff_zoneds_in_vec() {
 #[test]
 fn test_jiff_zoned_default_generator() {
     check_can_generate_examples(gs::default::<Zoned>());
+}
+
+#[test]
+fn test_jiff_zoneds_with_custom_timezones() {
+    // Replace the timezone generator and verify every produced Zoned uses UTC.
+    assert_all_examples(jiff_gs::zoneds().timezones(gs::just(TimeZone::UTC)), |z| {
+        z.time_zone() == &TimeZone::UTC
+    });
+}
+
+#[test]
+fn test_jiff_zoneds_with_custom_timestamps() {
+    // Replace the timestamp generator with a fixed value.
+    let fixed = Timestamp::from_second(0).unwrap();
+    assert_all_examples(jiff_gs::zoneds().timestamps(gs::just(fixed)), move |z| {
+        z.timestamp() == fixed
+    });
 }
 
 // ---------------------------------------------------------------------------
