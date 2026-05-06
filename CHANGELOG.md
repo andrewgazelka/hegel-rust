@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 - 2026-05-06
+
+This release adds the `Phase` enum and `Settings::phases()` API, allowing
+callers to control which test lifecycle phases run. The default phase set
+is `Explicit`, `Reuse`, `Generate`, `Target`, and `Shrink`.
+
 ## 0.8.13 - 2026-05-05
 
 This patch fixes two related issues with negative zero in the float generator:
