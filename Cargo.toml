@@ -64,6 +64,9 @@ rand = ["dep:rand"]
 antithesis = ["dep:serde_json"]
 chrono = ["dep:chrono"]
 jiff = ["dep:jiff"]
+serde_json = ["dep:serde_json"]
+# Enables the serde_json/raw_value feature. Enables generators for serde_json::value::RawValue.
+serde_json_raw_value = ["serde_json", "serde_json/raw_value"]
 
 [package.metadata.docs.rs]
 all-features = true
