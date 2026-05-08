@@ -1,46 +1,10 @@
 //! Tests for `tc.target()`, the public targeted property-based testing API.
-//!
-//! Ports the Hypothesis test_targeting suites:
-//! - hypothesis-python/tests/cover/test_targeting.py
-//! - hypothesis-python/tests/nocover/test_targeting.py
-//! - resources/pbtkit/tests/test_targeting.py
-//!
-//! Tests not ported (and why):
-//! - `test_disallowed_inputs_to_target` — hegel-rust's API is typed (`f64`,
-//!   `Into<String>`), so invalid types (non-float score, non-string label) are
-//!   compile-time errors rather than runtime `InvalidArgument` exceptions.
-//!   NaN and infinity are valid `f64` values in Rust and pass through silently.
-//! - `test_cannot_target_outside_test` — hegel-rust has no free
-//!   `hegel::target()` function; targeting is only possible via `tc.target()`
-//!   inside a test closure, so this case is statically unreachable.
-//! - `test_cannot_target_same_label_twice` / `test_cannot_target_default_label_twice`
-//!   — hegel-rust silently overwrites duplicate labels rather than raising.
-//! - `test_target_returns_value` — `tc.target()` returns `()`, not the score.
-//! - `test_reports_target_results` — requires capture of pytest's stdout output
-//!   format; no portable Rust counterpart via the public API.
-//! - `test_targeting_can_be_disabled` — exercises `phases=[Phase.generate,
-//!   Phase.target]` vs `phases=[Phase.generate]` and asserts targeting achieves
-//!   higher scores; flaky and depends on targeting being effective, so left for
-//!   a dedicated targeting-quality test pass.
-//! - `test_targeting_skips_non_integer` — exercises `tc.weighted()`, not
-//!   `tc.target()`.
-//!
-//! The pbtkit "stdout via capsys" assertions in
-//! `test_can_target_a_score_upwards_to_interesting`,
-//! `test_targeting_when_most_do_not_benefit`, and
-//! `test_can_target_a_score_downwards` are not ported (no Rust capsys
-//! equivalent); each test still asserts the panic from the targeted assertion
-//! failure.
 
 mod common;
 
 use common::utils::expect_panic;
 use hegel::generators as gs;
 use hegel::{Hegel, Settings};
-
-// ============================================================
-// API surface tests (cover/test_targeting.py)
-// ============================================================
 
 /// `tc.target(observation, label)` compiles and runs without panicking.
 #[test]
@@ -92,7 +56,7 @@ fn test_multiple_target_calls() {
     .run();
 }
 
-/// Stress-test with many distinct target labels (mirrors `test_respects_max_pool_size`).
+/// Stress-test with many distinct target labels.
 #[test]
 fn test_respects_max_pool_size() {
     Hegel::new(|tc| {
@@ -109,13 +73,7 @@ fn test_respects_max_pool_size() {
     .run();
 }
 
-// ============================================================
-// Behavioural tests (pbtkit/test_targeting.py)
-// ============================================================
-
 /// Targeting must not call the test body more times than `max_examples`.
-/// Ported from `test_max_examples_is_not_exceeded` (parametrized 1..100);
-/// a representative subset `[1, 5, 25, 99]` is checked here.
 #[test]
 fn test_max_examples_is_not_exceeded() {
     let m: u64 = 10000;
@@ -137,7 +95,6 @@ fn test_max_examples_is_not_exceeded() {
 }
 
 /// Targeting with a 2D quadratic score drives the optimizer to (500, 500).
-/// Ported from `test_finds_a_local_maximum` (parametrized over 100 seeds).
 #[test]
 fn test_finds_a_local_maximum() {
     expect_panic(
@@ -157,7 +114,6 @@ fn test_finds_a_local_maximum() {
 }
 
 /// Targeting can drive a sum score to its maximum and trigger an assertion failure.
-/// Ported from `test_can_target_a_score_upwards_to_interesting` (stdout check omitted).
 #[test]
 fn test_can_target_a_score_upwards_to_interesting() {
     expect_panic(
@@ -177,7 +133,6 @@ fn test_can_target_a_score_upwards_to_interesting() {
 }
 
 /// Targeting drives the maximum observed sum to 2000 without any assertion failure.
-/// Ported from `test_can_target_a_score_upwards_without_failing`.
 #[test]
 fn test_can_target_a_score_upwards_without_failing() {
     let mut max_score: u64 = 0;
@@ -197,7 +152,6 @@ fn test_can_target_a_score_upwards_without_failing() {
 
 /// When most test cases yield the same score on the first two draws, targeting
 /// still drives the third draw to its maximum.
-/// Ported from `test_targeting_when_most_do_not_benefit` (stdout check omitted).
 #[test]
 fn test_targeting_when_most_do_not_benefit() {
     let big: u64 = 10000;
@@ -231,7 +185,6 @@ fn test_targeting_adjust_avoids_negative_values() {
 }
 
 /// Targeting can drive a score downwards and find a case where the sum is 0.
-/// Ported from `test_can_target_a_score_downwards` (stdout check omitted).
 #[test]
 fn test_can_target_a_score_downwards() {
     expect_panic(
