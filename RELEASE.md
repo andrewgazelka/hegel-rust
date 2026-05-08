@@ -14,4 +14,4 @@ fn my_test(tc: hegel::TestCase) {
 }
 ```
 
-Inside a `#[hegel::test]`, `#[hegel::main]`, or `#[hegel::standalone_function]` body — and inside a `hegel::rewrite_draws!` closure — `tc.target(expr)` is rewritten to `tc.target_labelled(expr, "expr")`, where the label is the source text of `expr`. That way separate targeting expressions get separate labels by default, and the engine optimises each independently. Call `tc.target_labelled(score, "...")` directly when you want to choose the label yourself.
+Inside a `#[hegel::test]`, `#[hegel::main]`, or `#[hegel::standalone_function]` body, `tc.target(expr)` is rewritten to `tc.target_labelled(expr, "expr")`, where the label is the source text of `expr`. That way separate targeting expressions get separate labels by default, and the engine optimises each independently. Call `tc.target_labelled(score, "...")` directly when you want to choose the label yourself.

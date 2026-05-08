@@ -389,12 +389,11 @@ impl TestCase {
     ///
     /// Call this inside a test body to guide generation toward inputs that
     /// maximise `score`. Inside a `#[hegel::test]`, `#[hegel::main]`, or
-    /// `#[hegel::standalone_function]` body (or a `hegel::rewrite_draws!`
-    /// closure), `tc.target(expr)` is rewritten to call
-    /// [`target_labelled`](Self::target_labelled) with the source text of
-    /// `expr` as the label, so different targeting expressions are tracked
-    /// separately by default. Outside that rewrite, `tc.target(score)` uses
-    /// the empty label.
+    /// `#[hegel::standalone_function]` body, `tc.target(expr)` is rewritten
+    /// to call [`target_labelled`](Self::target_labelled) with the source
+    /// text of `expr` as the label, so different targeting expressions are
+    /// tracked separately by default. Outside that rewrite, `tc.target(score)`
+    /// uses the empty label.
     ///
     /// Has no effect during replays or if the test case has been aborted.
     ///
