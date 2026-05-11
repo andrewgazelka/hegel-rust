@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.3 - 2026-05-11
+
+This patch bumps our pinned hegel-core from [0.8.0](https://github.com/hegeldev/hegel-core/releases/tag/v0.8.0) to [0.8.2](https://github.com/hegeldev/hegel-core/releases/tag/v0.8.2).
+
 ## 0.12.2 - 2026-05-08
 
 This patch adds `tc.target(score)` and `tc.target_labelled(score, label)` for targeted property-based testing. Call them inside a test body to feed an observation back to the engine, which uses the score to guide generation toward higher-scoring inputs.
