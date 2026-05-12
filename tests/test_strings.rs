@@ -50,7 +50,7 @@ fn test_characters_exclude_categories_with_bounded_range_compiles() {
             .exclude_categories(&["Lu"])
             .min_codepoint(0x30)
             .max_codepoint(0x39),
-        |c: &char| ('0'..='9').contains(c),
+        |c: &char| c.is_ascii_digit(),
     );
 }
 

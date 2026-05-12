@@ -199,7 +199,7 @@ draw_example_tests!(
 draw_example_tests!(unit, gs::unit());
 
 #[cfg(feature = "rand")]
-draw_example_tests!(randoms, gs::randoms());
+draw_example_tests!(randoms, hegel::extras::rand::randoms());
 
 mod direct_strategies {
     //! The upstream file is a large parametrized suite that mixes portable
