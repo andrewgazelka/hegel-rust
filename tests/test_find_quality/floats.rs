@@ -138,7 +138,7 @@ fn test_half_bounded_generates_zero() {
     );
 }
 
-// ── True properties that should NOT be falsified ───────────────────────────
+// True properties that should NOT be falsified.
 
 #[test]
 fn test_is_float() {

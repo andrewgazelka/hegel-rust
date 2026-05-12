@@ -55,7 +55,7 @@ fn test_2(tc: hegel::TestCase) {{
     let project = TempRustProject::new()
         .test_file("integration.rs", &test_code)
         .env("VALUES_DIR", values_path.to_str().unwrap())
-        // "FAILED" appears in cargo test output for both native and server backends.
+        // "FAILED" appears in cargo test output for server backends.
         .expect_failure("FAILED");
 
     // run test_1. Database now has a failing entry for test_1
@@ -84,24 +84,10 @@ fn test_2(tc: hegel::TestCase) {{
     assert_ne!(values[0], shrunk_value);
 }
 
-// ── hypothesis/test_database_backend.py ────────────────────────────────────
-
-
-// ── hypothesis/watchdog/test_database_cover.py ─────────────────────────────
-
-
-// ── hypothesis/nocover/test_database_agreement.py ──────────────────────────
-
-
-// ── hypothesis/nocover/test_database_usage.py ──────────────────────────────
-
-
-// ── hypothesis/test_replay_logic.py ────────────────────────────────────────
-
 mod replay_logic {
-    //! `test_does_not_shrink_on_replay_with_multiple_bugs` is skipped (see
-    //! `SKIPPED.md`): it depends on `report_multiple_bugs=True` and Python's
-    //! `ExceptionGroup`, neither of which has a counterpart in hegel-rust.
+    //! `test_does_not_shrink_on_replay_with_multiple_bugs` is skipped:
+    //! it depends on `report_multiple_bugs=True` and Python's `ExceptionGroup`,
+    //! neither of which has a counterpart in hegel-rust.
 
     use std::sync::{Arc, Mutex};
 

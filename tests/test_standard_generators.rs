@@ -201,8 +201,6 @@ draw_example_tests!(unit, gs::unit());
 #[cfg(feature = "rand")]
 draw_example_tests!(randoms, gs::randoms());
 
-// ── hypothesis/test_direct_strategies.py ───────────────────────────────────
-
 mod direct_strategies {
     //! The upstream file is a large parametrized suite that mixes portable
     //! generator-validation cases with many Python-specific ones. Ported here
@@ -353,7 +351,7 @@ mod direct_strategies {
     #[test]
     fn test_text_alphabet_empty_with_min_size_panics() {
         // text(alphabet="", min_size=1): no characters to pick from and we require
-        // at least one character — native/server generation rejects this.
+        // at least one character — generation rejects this.
         expect_generator_panic(
             gs::text().alphabet("").min_size(1),
             "(?i)(alphabet|characters|empty|unsatisfiable|invalid|too.much)",
@@ -449,7 +447,9 @@ mod direct_strategies {
 
     #[test]
     fn test_from_regex_alphabet_combinations() {
-        check_can_generate_examples(gs::from_regex("abc").alphabet(gs::characters().codec("ascii")));
+        check_can_generate_examples(
+            gs::from_regex("abc").alphabet(gs::characters().codec("ascii")),
+        );
     }
 
     #[test]
@@ -655,23 +655,7 @@ mod direct_strategies {
     }
 }
 
-// ── hypothesis/test_provisional_strategies.py ──────────────────────────────
-
 mod provisional_strategies {
-    //! Individually-skipped tests:
-    //! - `test_url_fragments_contain_legal_chars` — imports the private
-    //!   `_url_fragments_strategy` strategy object and the
-    //!   `FRAGMENT_SAFE_CHARACTERS` constant from `hypothesis.provisional`;
-    //!   hegel-rust exposes neither a URL-fragment generator nor the
-    //!   fragment-safe-characters set as public API.
-    //! - `test_invalid_domain_arguments[max_length=-1|4.0]` and every
-    //!   `max_element_length` row — hegel-rust's `DomainGenerator::max_length`
-    //!   takes `usize` (so negative and float values are unrepresentable) and
-    //!   exposes no `max_element_length` setter, leaving only the
-    //!   `max_length ∈ {0, 3, 256}` invalid cases portable.
-    //! - `test_valid_domains_arguments[max_element_length=...]` rows — same
-    //!   gap; only `max_length ∈ {None, 4, 8, 255}` is portable.
-
     use std::collections::HashSet;
 
     use regex::Regex;
@@ -759,22 +743,7 @@ mod provisional_strategies {
     }
 }
 
-// ── pbtkit/test_generators.py ──────────────────────────────────────────────
-
 mod pbtkit_generators {
-    //! Individually-skipped tests (noted in SKIPPED.md):
-    //! - `test_cannot_witness_nothing` — no `gs::nothing()` in hegel-rust.
-    //! - `test_target_and_reduce` — no `tc.target(score)` public API.
-    //! - `test_impossible_weighted`, `test_guaranteed_weighted` — no
-    //!   `tc.weighted(p)` public API.
-    //! - `test_many_reject`, `test_many_reject_unsatisfiable` — pbtkit's
-    //!   free-function `many()` helper has no direct analog; the hegel-rust
-    //!   equivalent would be wiring `gs::Collection` manually with rejection,
-    //!   which the public shape of the API doesn't straightforwardly expose.
-    //! - `test_unique_by` — hegel-rust's `VecGenerator` only exposes
-    //!   `.unique(bool)`; it has no public `.unique_by(key_fn)` setter.
-    //! - `test_generator_repr` — tests Python `repr()` output, no analog.
-
     use std::collections::HashMap;
 
     use super::common::utils::{assert_all_examples, expect_panic, minimal};
@@ -942,7 +911,9 @@ mod pbtkit_generators {
     fn test_composite_with_args() {
         let max_val: i64 = 5;
         assert_all_examples(
-            hegel::compose!(|tc| { tc.draw(gs::integers::<i64>().min_value(0).max_value(max_val)) }),
+            hegel::compose!(|tc| {
+                tc.draw(gs::integers::<i64>().min_value(0).max_value(max_val))
+            }),
             |n: &i64| (0..=5).contains(n),
         );
     }

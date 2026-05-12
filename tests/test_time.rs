@@ -32,18 +32,12 @@ fn test_duration_default_generator() {
     assert_all_examples(gs::default::<Duration>(), |d| *d >= Duration::ZERO);
 }
 
-// ── hypothesis/test_datetimes.py ────────────────────────────────────────────
-
 mod datetimes {
     //! timedelta tests and date/datetime range-constraint tests are omitted from
     //! this port: `timedeltas()` does not yet exist in hegel-rust (the generator
     //! needs a signed multi-component type), and `DateGenerator`/`DateTimeGenerator`
     //! do not yet support `min_value`/`max_value` constraints.  Those will be
     //! added in a follow-up once the missing features land.
-    //!
-    //! Two tests are server-only (`#[cfg(not(feature = "native"))]`) because
-    //! Hypothesis shrinks dates toward 2000-01-01 while the native engine
-    //! shrinks toward its min bound (1970-01-01).
 
     use super::common::utils::{assert_all_examples, find_any, minimal};
     use hegel::generators::{self as gs};
@@ -80,8 +74,7 @@ mod datetimes {
 
     #[test]
     fn test_simplifies_towards_millenium() {
-        // Hypothesis shrinks datetimes toward 2000-01-01T00:00:00; the native
-        // engine shrinks toward 1970-01-01T00:00:00 (its min bound).
+        // Hypothesis shrinks datetimes toward 2000-01-01T00:00:00.
         let d = minimal(gs::datetimes(), |_: &String| true);
         let (year, month, day, hour, minute, second, microsecond) = datetime_parts(&d);
         assert_eq!(year, 2000);
@@ -117,7 +110,6 @@ mod datetimes {
     #[test]
     fn test_can_find_before_the_year_2000() {
         // Hypothesis shrinks toward 2000, so the minimal year < 2000 is 1999.
-        // Native engine shrinks toward 1970 (its min bound), giving 1970 instead.
         let d = minimal(gs::dates(), |s: &String| date_year(s) < 2000);
         assert_eq!(date_year(&d), 1999);
     }

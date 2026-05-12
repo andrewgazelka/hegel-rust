@@ -19,8 +19,6 @@ fn test_passing_composite_generation(tc: TestCase) {
     assert!(x > 0);
 }
 
-// ── hypothesis/test_composite.py ────────────────────────────────────────────
-
 mod composite {
     //! Tests that target Python-specific facilities have no Rust counterpart and
     //! are not ported:
@@ -140,8 +138,6 @@ mod composite {
         assert_eq!(combined, vec![0, 0, 0, 1]);
     }
 }
-
-// ── hypothesis/test_composite_kwonlyargs.py ─────────────────────────────────
 
 mod composite_kwonlyargs {
     //! Tests that composite generators with parameters work when used in collection generators.

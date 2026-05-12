@@ -745,7 +745,10 @@ mod nocover_nesting {
                         Settings::new()
                             .test_cases(100)
                             .database(None)
-                            .suppress_health_check([HealthCheck::TooSlow, HealthCheck::FilterTooMuch]),
+                            .suppress_health_check([
+                                HealthCheck::TooSlow,
+                                HealthCheck::FilterTooMuch,
+                            ]),
                     )
                     .run();
                 },
@@ -873,8 +876,7 @@ mod hypothesis_core {
     // honoured by every drawn character. The Python original asserts the full
     // codec round-trip (`example.encode(codec).decode(codec) == example`); Rust
     // `char` is always a Unicode scalar, so for "ascii" the round-trip reduces to
-    // `c.is_ascii()` and for "utf-8" it is trivially true. The Unicode-category
-    // rows need `unicodedata::general_category` and are native-gated.
+    // `c.is_ascii()` and for "utf-8" it is trivially true.
 
     #[test]
     fn test_characters_codec_ascii_unbounded() {
@@ -928,9 +930,6 @@ mod hypothesis_core {
         .settings(Settings::new().test_cases(100).database(None))
         .run();
     }
-
-
-
 }
 
 mod pbtkit_core {
@@ -955,14 +954,17 @@ mod pbtkit_core {
     #[test]
     fn test_flat_map_core() {
         Hegel::new(|tc| {
-            let (m, n): (i64, i64) = tc.draw(gs::integers::<i64>().min_value(0).max_value(5).flat_map(
-                |m: i64| {
-                    gs::tuples!(
-                        gs::just(m),
-                        gs::integers::<i64>().min_value(m).max_value(m + 10),
-                    )
-                },
-            ));
+            let (m, n): (i64, i64) = tc.draw(
+                gs::integers::<i64>()
+                    .min_value(0)
+                    .max_value(5)
+                    .flat_map(|m: i64| {
+                        gs::tuples!(
+                            gs::just(m),
+                            gs::integers::<i64>().min_value(m).max_value(m + 10),
+                        )
+                    }),
+            );
             assert!(m <= n && n <= m + 10);
         })
         .settings(Settings::new().test_cases(100).database(None))
@@ -1087,10 +1089,4 @@ mod pbtkit_core {
     }
 
     // Port of pbtkit/tests/test_core.py::test_error_on_too_strict_precondition.
-    // pbtkit raises Unsatisfiable when every test case calls `tc.reject()`;
-    // hegel-rust's native mode fires a FilterTooMuch health check instead.
-    // Server mode silently passes, so this assertion is native-only.
-
-    // ── IntegerChoice native-engine tests ──────────────────────────────────────
-
 }

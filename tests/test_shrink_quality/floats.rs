@@ -61,8 +61,3 @@ fn test_can_find_nans() {
         assert!(x.len() >= 2 && x.len() <= 3);
     }
 }
-
-
-
-
-

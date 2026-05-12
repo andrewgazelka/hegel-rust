@@ -154,8 +154,6 @@ fn test_thread_inside_composite_does_not_deadlock(tc: TestCase) {
     let (_a, _b, _c) = tc.draw(thread_mid_generator());
 }
 
-// ── hypothesis/test_threading.py ────────────────────────────────────────────
-
 mod threading {
     //! Omitted: test_threadlocal_setattr_and_getattr, test_nonexistent_getattr_raises,
     //! test_nonexistent_setattr_raises, test_raises_if_not_passed_callable — these test

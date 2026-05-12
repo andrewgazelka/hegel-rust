@@ -4,9 +4,6 @@ use common::utils::{assert_all_examples, assert_no_examples, find_any};
 use hegel::generators as gs;
 
 // is_in_unicode_category helper (depended on hegel::unicodedata) and its callers
-// (test_characters_exclude_categories, test_text_exclude_categories) are dropped
-// on test-port: hegel::unicodedata only exists on native.
-
 #[test]
 fn test_characters_single_char() {
     assert_all_examples(gs::characters(), |c: &char| c.len_utf8() > 0);
@@ -56,10 +53,6 @@ fn test_characters_exclude_categories_with_bounded_range_compiles() {
         |c: &char| ('0'..='9').contains(c),
     );
 }
-
-// test_characters_exclude_categories_strips_entire_range_panics dropped on test-port:
-// the exclude_categories validation lives behind hegel::unicodedata on native, so
-// strategy-construction doesn't panic on the server-backed build path.
 
 #[test]
 fn test_characters_include_characters() {
@@ -330,8 +323,6 @@ fn test_urls_format() {
     });
 }
 
-// ── pbtkit/test_bytes.py ────────────────────────────────────────────────────
-
 mod pbtkit_bytes {
     use crate::common::utils::{Minimal, assert_all_examples, minimal};
     use hegel::generators as gs;
@@ -384,25 +375,7 @@ mod pbtkit_bytes {
         });
         assert_eq!(b, Vec::<u8>::new());
     }
-
-    // ── Tests against native `BytesChoice` internals ──────────────────────────
-    //
-    // These exercise engine internals that are only reachable under
-    // `--features native`. They are also covered as embedded tests in
-    // `tests/embedded/native/choices_tests.rs`; redundancy is fine.
-
-
-    // ── Database-round-trip test ──────────────────────────────────────────────
-    //
-    // Port of `test_mixed_types_database_round_trip`. The hegel-rust equivalent
-    // lives under `src/native/database.rs` and uses a different binary layout;
-    // we match the semantics (write then replay the shrunk value) rather than
-    // the exact on-disk bytes. Draws integer + boolean + binary in the same
-    // test to exercise the round-trip for all three choice types.
-
 }
-
-// ── pbtkit/test_text.py ─────────────────────────────────────────────────────
 
 mod pbtkit_text {
     use crate::common::utils::{assert_all_examples, expect_panic, minimal};
@@ -544,9 +517,8 @@ mod pbtkit_text {
     #[test]
     fn test_draw_string_invalid_range() {
         // Python: `tc.draw_string(min_codepoint=200, max_codepoint=100)` raises
-        // ValueError. In hegel-rust drawing from such a generator panics: the
-        // server returns an InvalidArgument error, and the native backend panics
-        // with a similar message from `schema::text::interpret_string`.
+        // ValueError. In hegel-rust drawing from such a generator panics with
+        // an InvalidArgument error.
         expect_panic(
             || {
                 Hegel::new(|tc| {
@@ -558,27 +530,7 @@ mod pbtkit_text {
             "InvalidArgument",
         );
     }
-
-    // ── Tests against native `StringChoice` internals ─────────────────────────
-    //
-    // These exercise engine internals that are only reachable under
-    // `--features native`. They are also covered as embedded tests in
-    // `tests/embedded/native/choices_tests.rs`; redundancy is fine.
-
-
-    // ── Database-round-trip and corrupt-entry tests ────────────────────────────
-    //
-    // Ported from `test_text_database_round_trip` and
-    // `test_truncated_string_database_entry`. Both pbtkit tests exercise the
-    // engine's persistence layer; hegel-rust's native database lives at
-    // `src/native/database.rs` and uses a different binary layout, so we match
-    // the semantics (write then replay, and corrupt entries are ignored
-    // gracefully) rather than the exact on-disk bytes.
-
-
 }
-
-// ── hypothesis/test_simple_strings.py ───────────────────────────────────────
 
 mod simple_strings {
     use crate::common::utils::{assert_all_examples, minimal};
@@ -695,14 +647,11 @@ mod simple_strings {
         assert_all_examples(gs::text().max_codepoint(127), |s: &String| s.is_ascii());
     }
 
-
     #[test]
     fn test_can_set_max_size_large() {
         assert_all_examples(gs::text().max_size(1_000_000), |_: &String| true);
     }
 }
-
-// ── hypothesis/test_simple_characters.py ────────────────────────────────────
 
 mod simple_characters {
     use crate::common::utils::{assert_no_examples, expect_panic, find_any, minimal};
@@ -764,11 +713,6 @@ mod simple_characters {
         );
     }
 
-
-
-
-
-
     #[test]
     fn test_find_one() {
         let c = minimal(
@@ -777,7 +721,6 @@ mod simple_characters {
         );
         assert_eq!(c, '0');
     }
-
 
     #[test]
     fn test_whitelisted_characters_overlap_blacklisted_characters() {
@@ -856,8 +799,6 @@ mod simple_characters {
     }
 }
 
-// ── hypothesis/nocover_test_characters.py ───────────────────────────────────
-
 mod nocover_characters {
     use crate::common::utils::assert_all_examples;
     use hegel::generators as gs;
@@ -894,8 +835,6 @@ mod nocover_characters {
     }
 }
 
-// ── hypothesis/nocover_test_emails.py ───────────────────────────────────────
-
 mod nocover_emails {
     use crate::common::utils::assert_all_examples;
     use hegel::generators as gs;
@@ -916,8 +855,6 @@ mod nocover_emails {
         });
     }
 }
-
-// ── hypothesis/test_regex.py ────────────────────────────────────────────────
 
 mod regex_tests {
     use crate::common::utils::{
@@ -1364,11 +1301,6 @@ mod regex_tests {
     // test_can_pass_union_for_alphabet: uses union alphabet type not supported by hegel-rust's API.
     // test_regex_output_should_print_as_string: output formatting test (subprocess).
 }
-
-// ── hypothesis/test_intervalset.py ──────────────────────────────────────────
-
-
-// ── hypothesis/nocover_test_bad_repr.py ─────────────────────────────────────
 
 mod nocover_bad_repr {
     use crate::common::utils::check_can_generate_examples;

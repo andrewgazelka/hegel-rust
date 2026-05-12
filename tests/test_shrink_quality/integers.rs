@@ -141,10 +141,3 @@ fn test_reduces_additive_pairs() {
     .run();
     assert_eq!((m, n), (1, 1000));
 }
-
-// Tests 14-15 exercise `redistribute_integers` with conditional generation
-// (the number of draws depends on a prior choice). Native-gated because
-// Hypothesis's server-side choice-sequence encoding differs, so the specific
-// shrunk tuple can only be pinned down against the native shrinker.
-
-

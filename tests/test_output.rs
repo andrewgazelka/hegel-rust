@@ -134,26 +134,7 @@ fn test_failing_test_output_with_full_backtrace() {
     );
 }
 
-
-
-// ── hypothesis/test_reporting.py ───────────────────────────────────────────
-
 mod reporting {
-    //! Individually-skipped tests:
-    //!
-    //! - `test_does_not_print_debug_in_verbose`,
-    //!   `test_does_print_debug_in_debug`,
-    //!   `test_does_print_verbose_in_debug` — exercise
-    //!   `hypothesis.reporting.debug_report` / `verbose_report`, public APIs
-    //!   for verbosity-gated user logging that hegel-rust does not expose.
-    //!   The closest analog, `tc.note()`, is verbosity-independent and only
-    //!   fires on the final failing-test replay.
-    //!
-    //! - `test_can_report_when_system_locale_is_ascii` — relies on Python
-    //!   `monkeypatch.setattr(sys, "stdout", ...)` and `os.pipe()` to swap
-    //!   the process stdout for an ASCII-only stream. Both are
-    //!   Python-specific facilities with no Rust counterpart.
-
     use std::sync::OnceLock;
 
     use super::common::project::TempRustProject;
@@ -195,8 +176,6 @@ fn main() {
         );
     }
 }
-
-// ── hypothesis/test_verbosity.py ───────────────────────────────────────────
 
 mod verbosity {
     //! test_prints_initial_attempts_on_find is omitted: it uses hypothesis.find(),
@@ -245,8 +224,7 @@ fn main() {
     // test_prints_intermediate_in_success dropped on test-port: client-side
     // Verbosity::Verbose doesn't reach the Hypothesis server (which is launched
     // with `--verbosity normal` from server::session::init), so "Trying example"
-    // never appears in stderr. Native exercises the local backend, where verbose
-    // logging is emitted directly by the runner.
+    // never appears in stderr.
 
     #[test]
     fn test_does_not_log_in_quiet_mode() {
@@ -301,8 +279,6 @@ fn main() {
     }
 }
 
-// ── hypothesis/test_debug_information.py ───────────────────────────────────
-
 mod debug_information {
     use super::common::project::TempRustProject;
     use std::sync::OnceLock;
@@ -346,26 +322,11 @@ fn main() {
     }
 }
 
-// ── hypothesis/snapshots/test_combinators.py ───────────────────────────────
-
 mod snapshots_combinators {
     //! The upstream file uses syrupy's `.ambr` snapshots to pin the exact
     //! "Falsifying example: inner(...)" output text. The portable claim is
     //! about the shrunk values, not the format string; the port asserts on
     //! the shrunk values via `minimal()` instead of capturing stderr.
-    //!
-    //! Individually-skipped tests:
-    //!
-    //! - `test_sampled_from_enum_flag`,
-    //!   `test_sampled_from_module_level_enum_flag` — both depend on
-    //!   Python's `enum.Flag` and Hypothesis's special-case handling of
-    //!   `sampled_from(EnumFlag)` (which generates the power-set of flag
-    //!   combinations via `Flag` bitwise OR semantics). `enum.Flag` is a
-    //!   Python-specific facility with no Rust analog, and hegel-rust's
-    //!   `gs::sampled_from` has no flag-set integration. The snapshots also
-    //!   pin Python `__repr__` of enum-flag values
-    //!   (`test_sampled_from_enum_flag.<locals>.Color.RED`,
-    //!   `Direction.NORTH`).
 
     use super::common::utils::minimal;
     use hegel::generators as gs;
@@ -388,8 +349,6 @@ mod snapshots_combinators {
         assert_eq!(s, "");
     }
 }
-
-// ── hypothesis/snapshots/test_shrinking.py ─────────────────────────────────
 
 mod snapshots_shrinking {
     //! The upstream file uses syrupy's `.ambr` snapshots of Hypothesis's
@@ -415,10 +374,7 @@ mod snapshots_shrinking {
 
     // test_shrunk_string dropped on test-port: the server backend's per-element
     // Integer shrinker gets stuck at 'À' (U+00C0) instead of reaching 'A' (see
-    // HypothesisWorks/hypothesis#4725). On native the local shrinker reaches 'A'
-    // and the assert passes. The native commit that ungated this test relied on
-    // a different shrinker seed; under test-port's server backend the test still
-    // fails as upstream describes.
+    // HypothesisWorks/hypothesis#4725), so this test fails as upstream describes.
 
     #[test]
     fn test_shrunk_float() {

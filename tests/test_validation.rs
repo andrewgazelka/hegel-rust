@@ -213,48 +213,7 @@ fn test_server_invalid_argument_is_reported(tc: TestCase) {
     let _: char = tc.draw(gs::characters().min_codepoint(0xD800).max_codepoint(0xD800));
 }
 
-// ── hypothesis/test_validation.py ───────────────────────────────────────────
-
 mod validation {
-    //! Individually-skipped tests (see SKIPPED.md):
-    //!
-    //! - `test_errors_when_given_varargs`,
-    //!   `test_varargs_without_positional_arguments_allowed`,
-    //!   `test_errors_when_given_varargs_and_kwargs_with_positional_arguments`,
-    //!   `test_varargs_and_kwargs_without_positional_arguments_allowed`,
-    //!   `test_bare_given_errors`, `test_errors_on_unwanted_kwargs`,
-    //!   `test_errors_on_too_many_positional_args`, `test_errors_on_any_varargs`,
-    //!   `test_can_put_arguments_in_the_middle`, `test_stuff_keyword`,
-    //!   `test_stuff_positional`, `test_too_many_positional`,
-    //!   `test_given_warns_on_use_of_non_strategies`,
-    //!   `test_given_warns_when_mixing_positional_with_keyword` — all exercise
-    //!   Python `@given(*args, **kwargs)` argument-passing semantics (varargs,
-    //!   default kwargs, mixed positional/keyword, type-as-strategy via `@given(bool)`).
-    //!   `#[hegel::test]` takes generators directly, so this validation surface has
-    //!   no Rust counterpart.
-    //! - `test_list_unique_and_unique_by_cannot_both_be_enabled` — uses
-    //!   `unique_by=key_fn`; hegel-rust's `VecGenerator::unique` only accepts a
-    //!   `bool`, so the conflict can't be expressed.
-    //! - `test_recursion_validates_base_case`,
-    //!   `test_recursion_validates_recursive_step` — `st.recursive()` has no
-    //!   hegel-rust equivalent (already covered by the whole-file skip of
-    //!   `test_recursive.py`).
-    //! - `test_cannot_find_non_strategies` — uses Python `find()` and treats
-    //!   `bool` as a type-as-strategy; neither has a Rust counterpart.
-    //! - `test_valid_sizes` — passes `min_size="0"` (a string) and
-    //!   `max_size="10"`; Rust's typed `min_size: usize` rejects this at
-    //!   compile time, so there is nothing to assert at runtime.
-    //! - `test_check_type_with_tuple_of_length_two`,
-    //!   `test_check_type_suggests_check_strategy`,
-    //!   `test_check_strategy_might_suggest_sampled_from` — exercise Python-only
-    //!   internal helpers (`hypothesis.internal.validation.check_type`,
-    //!   `hypothesis.strategies._internal.strategies.check_strategy`).
-    //! - `test_warn_on_strings_matching_common_codecs` — exercises a Hypothesis
-    //!   warning fired when `st.text('ascii')` is called with a codec-like
-    //!   positional alphabet string. hegel-rust's `gs::text()` separates
-    //!   `.alphabet()` and `.codec()` into distinct methods, so the codec/alphabet
-    //!   ambiguity the warning targets doesn't exist.
-
     use super::common::utils::{check_can_generate_examples, expect_panic};
     use hegel::generators::{self as gs, Generator};
     use hegel::{Hegel, Settings};
@@ -356,37 +315,9 @@ mod validation {
     }
 }
 
-// ── hypothesis/test_given_error_conditions.py ───────────────────────────────
-
 mod given_error_conditions {
-    //! Individually-skipped tests (see SKIPPED.md):
-    //!
-    //! - `test_raises_unsatisfiable_if_passed_explicit_nothing` — uses `nothing()`,
-    //!   the empty-generator strategy; hegel-rust has no `gs::nothing()` public API.
-    //! - `test_error_if_has_no_hints`, `test_error_if_infer_all_and_has_no_hints`,
-    //!   `test_error_if_infer_is_posarg`, `test_error_if_infer_is_posarg_mixed_with_kwarg`
-    //!   — exercise Python's `@given(a=...)` / `@given(...)` ellipsis syntax for
-    //!   type-hint-based strategy inference. `#[hegel::test]` takes generators
-    //!   directly, so this inference mechanism has no Rust counterpart.
-    //! - `test_given_twice_is_an_error` — stacks two `@given` decorators on one
-    //!   function; `#[hegel::test]` doesn't compose that way.
-    //! - `test_given_is_not_a_class_decorator` — applies `@given` to a Python
-    //!   class; Rust has no analogous class/macro composition.
-    //! - `test_specific_error_for_coroutine_functions` — asserts a specific error
-    //!   for Python `async def` tests; hegel-rust has no async-test dispatch.
-    //! - `test_suggests_at_settings_if_extra_kwarg_matches_setting_name` —
-    //!   inspects `@given` kwarg handling against Python setting names. hegel-rust
-    //!   uses the `.settings(Settings::new()...)` builder rather than kwargs on
-    //!   the test macro.
-
     use hegel::generators as gs;
     use hegel::{Hegel, Settings, TestCase};
-
-    // Port of `test_raises_unsatisfiable_if_all_false_in_finite_set`. In native
-    // mode, a test that always rejects trips the `FilterTooMuch` health check
-    // (hegel-rust's analog of Hypothesis's `Unsatisfiable`). In server mode, the
-    // runner silently passes on all-rejected runs, so this assertion is
-    // native-only.
 
     #[test]
     fn test_does_not_raise_unsatisfiable_if_some_false_in_finite_set() {

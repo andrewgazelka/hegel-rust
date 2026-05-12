@@ -255,50 +255,7 @@ fn test_sampled_from_filtered_boxed() {
     );
 }
 
-// ── hypothesis/test_control.py ─────────────────────────────────────────────
-
 mod control {
-    //! Individually-skipped tests:
-    //! - test_cannot_cleanup_with_no_context — `cleanup()` is Hypothesis public
-    //!   API with no hegel-rust counterpart.
-    //! - test_cannot_event_with_no_context — `event()` is Hypothesis public API
-    //!   with no hegel-rust counterpart.
-    //! - test_cleanup_executes_on_leaving_build_context — `cleanup()` /
-    //!   `BuildContext` with no hegel-rust counterpart.
-    //! - test_can_nest_build_context — `BuildContext` context-manager shape
-    //!   has no hegel-rust counterpart (test context is a thread-local flag,
-    //!   not an openable/nestable object).
-    //! - test_does_not_suppress_exceptions — `BuildContext` context-manager
-    //!   with no hegel-rust counterpart.
-    //! - test_suppresses_exceptions_in_teardown — `BuildContext` + `cleanup()`
-    //!   with no hegel-rust counterpart.
-    //! - test_runs_multiple_cleanup_with_teardown — `BuildContext` + `cleanup()`
-    //!   + `ExceptionGroup` with no hegel-rust counterpart.
-    //! - test_raises_error_if_cleanup_fails_but_block_does_not — `cleanup()`
-    //!   with no hegel-rust counterpart.
-    //! - test_raises_if_note_out_of_context — `note()` is a standalone function
-    //!   in Hypothesis; in hegel-rust it is `TestCase::note`, so calling it
-    //!   outside a test context is prevented by the type system.
-    //! - test_deprecation_warning_if_assume_out_of_context — standalone
-    //!   `assume()` doesn't exist in hegel-rust (it's `TestCase::assume`).
-    //! - test_deprecation_warning_if_reject_out_of_context — standalone
-    //!   `reject()` doesn't exist in hegel-rust (it's `TestCase::reject`).
-    //! - test_raises_if_current_build_context_out_of_context —
-    //!   `current_build_context()` has no hegel-rust counterpart.
-    //! - test_current_build_context_is_current — `current_build_context()` /
-    //!   `BuildContext` with no hegel-rust counterpart.
-    //! - test_prints_all_notes_in_verbose_mode — hegel-rust's `tc.note()` is
-    //!   verbosity-independent and only prints on the final failing replay
-    //!   (see the individually-skipped `test_reporting.py` tests in
-    //!   SKIPPED.md); the original asserts `note` output during every attempt
-    //!   under `Verbosity::debug`.
-    //! - test_note_pretty_prints — uses `hypothesis.reporting.with_reporter`
-    //!   to redirect reports into a list; hegel-rust has no reporter-override
-    //!   public API.
-    //! - test_can_convert_non_weakref_types_to_event_strings — internal
-    //!   `_event_to_string` helper and Python weak-reference semantics with
-    //!   no Rust counterpart.
-
     use hegel::TestCase;
     use hegel::generators as gs;
     use hegel::{Hegel, Settings};
@@ -338,8 +295,6 @@ mod control {
         .run();
     }
 }
-
-// ── hypothesis/test_find.py ────────────────────────────────────────────────
 
 mod find {
     //! Python's `find()` and `phases` setting have no public hegel-rust
@@ -394,22 +349,7 @@ mod find {
     }
 }
 
-// ── hypothesis/test_nothing.py ─────────────────────────────────────────────
-
 mod nothing {
-    //! Individually-skipped tests (rest of the file is ported):
-    //!
-    //! - `test_list_of_nothing` — uses `st.nothing()`; no `gs::nothing()` public API.
-    //! - `test_set_of_nothing` — uses `st.nothing()`; no `gs::nothing()` public API.
-    //! - `test_validates_min_size` — uses `st.nothing()`; no `gs::nothing()` public API.
-    //! - `test_function_composition` — uses `st.nothing()` plus `.is_empty`
-    //!   strategy introspection; neither has a hegel-rust counterpart.
-    //! - `test_tuples_detect_empty_elements` — same (`st.nothing()` + `.is_empty`).
-    //! - `test_fixed_dictionaries_detect_empty_values` — same.
-    //! - `test_no_examples` — uses `st.nothing()`; no `gs::nothing()` public API.
-    //! - `test_empty` (parametrized over four `nothing()` shapes) — uses
-    //!   `st.nothing()` and `.is_empty`; neither has a hegel-rust counterpart.
-
     use std::collections::HashSet;
 
     use super::common::utils::minimal;
@@ -426,8 +366,6 @@ mod nothing {
         assert_eq!(x, vec![0_i64; 10]);
     }
 }
-
-// ── hypothesis/test_one_of.py ──────────────────────────────────────────────
 
 mod one_of {
     //! Omitted (Python-specific, no Rust counterpart):
@@ -469,11 +407,8 @@ mod one_of {
     }
 }
 
-// ── hypothesis/test_searchstrategy.py ──────────────────────────────────────
-
 mod searchstrategy {
-    //! Tests that rely on Python-specific facilities are not ported (see SKIPPED.md
-    //! for the full list and rationale):
+    //! Tests that rely on Python-specific facilities are not ported:
     //!
     //! - `test_or_errors_when_given_non_strategy` — Python `|` operator overloading.
     //! - `test_just_strategy_uses_repr`, `test_can_map_nameless`,
@@ -511,11 +446,7 @@ mod searchstrategy {
             "(?i)(health.check|FailedHealthCheck|filter|unsatisfiable)",
         );
     }
-
-
 }
-
-// ── hypothesis/test_arbitrary_data.py ──────────────────────────────────────
 
 mod arbitrary_data {
     //! Python's `st.data()` strategy returns a data object that exposes a
@@ -525,16 +456,6 @@ mod arbitrary_data {
     //! "conditional draw" pattern ports as a normal `Hegel::new(|tc| …).run()`,
     //! and the "dynamic draw inside `find()`" pattern ports as a `compose!`
     //! generator passed to `minimal()`.
-    //!
-    //! Individually-skipped tests:
-    //!
-    //! - `test_errors_when_normal_strategy_functions_are_used` — asserts
-    //!   `st.data().filter(...)` / `.map(...)` / `.flatmap(...)` raise
-    //!   `InvalidArgument`; there is no `st.data()` strategy object in
-    //!   hegel-rust to apply those transforms to (the equivalent is a
-    //!   compile-time absence of those methods on `TestCase`).
-    //! - `test_nice_repr` — tests `repr(st.data()) == "data()"`; Python `repr`
-    //!   has no Rust counterpart.
 
     use super::common::project::TempRustProject;
     use super::common::utils::minimal;
@@ -701,33 +622,9 @@ fn main() {
     }
 }
 
-// ── hypothesis/test_filtered_strategy.py ───────────────────────────────────
-
-mod filtered_strategy {
-    //! Individually-skipped tests:
-    //!
-    //! - `test_filtered_branches_are_all_filtered`,
-    //!   `test_filter_conditions_may_be_empty`,
-    //!   `test_nested_filteredstrategy_flattens_conditions` — all three construct
-    //!   Hypothesis's internal `FilteredStrategy` class directly and inspect its
-    //!   `.branches` / `.flat_conditions` / `.filtered_strategy` attributes.
-    //!   hegel-rust models filtering as a `Filtered<T, F, G>` wrapper generator
-    //!   with a single predicate: nested `.filter(...)` calls compose as nested
-    //!   wrappers rather than flattening, there is no `branches` on generators,
-    //!   and a predicate-less `Filtered` is not expressible. See SKIPPED.md.
-
-}
-
-// ── hypothesis/nocover/test_filtering.py ───────────────────────────────────
+mod filtered_strategy {}
 
 mod nocover_filtering {
-    //! Individually-skipped tests:
-    //!
-    //! - `test_chained_filters_repr` — asserts
-    //!   `repr(base.filter(foo).filter(bar)) == f"{base!r}.filter(foo).filter(bar)"`.
-    //!   Python `repr()` on strategies has no Rust counterpart; hegel-rust's
-    //!   `Filtered<T, F, G>` wrapper exposes no repr-style introspection surface.
-
     use super::common::utils::assert_all_examples;
     use hegel::generators::{self as gs, BoxedGenerator, Generator};
     use hegel::{Hegel, Settings};
@@ -750,8 +647,8 @@ mod nocover_filtering {
 
     fn run_chained_filters_agree(base: BoxedGenerator<'static, i64>) {
         Hegel::new(move |tc| {
-            let forbidden: HashSet<i64> =
-                tc.draw(gs::hashsets(gs::integers::<i64>().min_value(1).max_value(20)).max_size(19));
+            let forbidden: HashSet<i64> = tc
+                .draw(gs::hashsets(gs::integers::<i64>().min_value(1).max_value(20)).max_size(19));
 
             let mut s: BoxedGenerator<'static, i64> = base.clone();
             for f in &forbidden {
@@ -796,17 +693,7 @@ mod nocover_filtering {
     }
 }
 
-// ── hypothesis/nocover/test_flatmap.py ─────────────────────────────────────
-
 mod nocover_flatmap {
-    //! Individually-skipped tests:
-    //! - `test_flatmap_does_not_reuse_strategies`: Python `is not`
-    //!   object-identity check (`find_any(s) is not find_any(s)`); hegel-rust
-    //!   draws return owned/cloned values, so identity-distinctness is
-    //!   structural rather than observable.
-    //! - `test_flatmap_has_original_strategy_repr`: Python `repr()` output of
-    //!   a composed strategy; hegel-rust generators have no repr surface.
-
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
 
@@ -1054,8 +941,6 @@ mod nocover_flatmap {
     }
 }
 
-// ── hypothesis/nocover/test_deferred_errors.py ─────────────────────────────
-
 mod nocover_deferred_errors {
     //! The upstream file pins down Hypothesis's deferred-validation semantics:
     //! invalid strategy construction (bad bounds, empty `sampled_from`, etc.)
@@ -1063,15 +948,6 @@ mod nocover_deferred_errors {
     //! strategy is actually used to generate data. Hegel-rust mostly matches
     //! this: bound checks in `IntegerGenerator` / `FloatGenerator` /
     //! `VecGenerator` fire from `do_draw`, not the builder methods.
-    //!
-    //! Individually-skipped tests (see SKIPPED.md):
-    //!
-    //! - `test_does_not_recalculate_the_strategy` — uses Python's
-    //!   `hypothesis.strategies._internal.core.defines_strategy` decorator,
-    //!   which wraps a factory in a `LazyStrategy` that memoizes the
-    //!   underlying `SearchStrategy` after the first use. Hegel-rust
-    //!   generators are eagerly-constructed structs rather than lazy factory
-    //!   wrappers, so there is no equivalent laziness/memoisation layer.
     //!
     //! The `st.sampled_from([])` line inside
     //! `test_does_not_error_on_initial_calculation` is also omitted:
@@ -1147,8 +1023,6 @@ mod nocover_deferred_errors {
     }
 }
 
-// ── hypothesis/nocover/test_imports.py ─────────────────────────────────────
-
 mod nocover_imports {
     //! The original checks `from hypothesis import *` and
     //! `from hypothesis.strategies import *` both work. The Rust analog is
@@ -1174,8 +1048,6 @@ mod nocover_imports {
         .run();
     }
 }
-
-// ── hypothesis/nocover/test_given_reuse.py ─────────────────────────────────
 
 mod nocover_given_reuse {
     //! The Python original tests that a `@given(st.booleans())` decorator value
@@ -1228,6 +1100,3 @@ mod nocover_given_reuse {
         .run();
     }
 }
-
-// ── hypothesis/nocover/test_dynamic_variable.py ────────────────────────────
-

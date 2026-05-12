@@ -4,9 +4,6 @@
 
 mod common;
 
-
-
-
 mod shrink_quality {
     use super::common::utils::{Minimal, minimal};
     use ciborium::Value;
@@ -370,13 +367,14 @@ mod shrink_quality {
 
     #[test]
     fn test_list_with_complex_sorting_structure() {
-        let xs: Vec<Vec<bool>> = minimal(gs::vecs(gs::vecs(gs::booleans())), |x: &Vec<Vec<bool>>| {
-            let reversed: Vec<Vec<bool>> = x
-                .iter()
-                .map(|t| t.iter().rev().copied().collect())
-                .collect();
-            reversed > *x && x.len() > 3
-        });
+        let xs: Vec<Vec<bool>> =
+            minimal(gs::vecs(gs::vecs(gs::booleans())), |x: &Vec<Vec<bool>>| {
+                let reversed: Vec<Vec<bool>> = x
+                    .iter()
+                    .map(|t| t.iter().rev().copied().collect())
+                    .collect();
+                reversed > *x && x.len() > 3
+            });
         assert_eq!(xs.len(), 4);
     }
 
@@ -531,10 +529,10 @@ mod shrink_quality {
         assert_eq!((a, b), (1, 1000));
     }
 
-    // Server-only: native's float shrinker doesn't drive bounded floats
-    // down to the integer 1.0 through paired-sum constraints; it gets
-    // stuck at intermediate values (e.g. 203.0). Same gap blocks the two
-    // `_mixed_float_int` and `_separated_float` variants.
+    // The bounded-float shrinker can get stuck at intermediate values
+    // (e.g. 203.0) instead of driving down to 1.0 through paired-sum
+    // constraints; this also blocks the `_mixed_float_int` and
+    // `_separated_float` variants.
     #[test]
     fn test_sum_of_pair_float() {
         let (a, b) = minimal(
@@ -611,10 +609,8 @@ mod shrink_quality {
     }
 
     // `div_subterms` and `evaluate` walk the (potentially very deep) `Expr`
-    // tree iteratively. The native engine generates and shrinks much deeper
-    // `gs::deferred` trees than the server backend's wire protocol does, so
-    // a recursive `match` self + recurse on children blows the stack on
-    // debug builds before the shrinker converges.
+    // tree iteratively, because a recursive `match` self + recurse on children
+    // can blow the stack on debug builds before the shrinker converges.
     fn div_subterms(root: &Expr) -> bool {
         let mut stack: Vec<&Expr> = vec![root];
         while let Some(node) = stack.pop() {
@@ -710,8 +706,10 @@ mod shrink_quality {
         let expr = def.generator();
         def.set(hegel::one_of!(
             gs::integers::<i64>().map(Expr::Int),
-            gs::tuples!(expr.clone(), expr.clone()).map(|(l, r)| Expr::Add(Box::new(l), Box::new(r))),
-            gs::tuples!(expr.clone(), expr.clone()).map(|(l, r)| Expr::Div(Box::new(l), Box::new(r))),
+            gs::tuples!(expr.clone(), expr.clone())
+                .map(|(l, r)| Expr::Add(Box::new(l), Box::new(r))),
+            gs::tuples!(expr.clone(), expr.clone())
+                .map(|(l, r)| Expr::Div(Box::new(l), Box::new(r))),
         ));
 
         let x = Minimal::new(expr, |e: &Expr| {
@@ -818,13 +816,10 @@ mod shrink_quality {
         }
     }
 
-    // Server-only: native's text shrinker doesn't shrink unicode codepoints
-    // down to ASCII '0'; the same gap blocks
-    // `test_minimize_duplicated_characters_within_a_choice`. Hypothesis's
-    // shrinker has a per-codepoint canonicalisation pass that lowers
-    // values toward the simplification target ('0'); native's text-shrink
-    // stops on lex-smaller codepoints from elsewhere in the
-    // `IntervalSet`.
+    // Hypothesis's shrinker has a per-codepoint canonicalisation pass that
+    // lowers values toward the simplification target ('0'); the same gap that
+    // blocks `test_minimize_duplicated_characters_within_a_choice` could stop
+    // shrinking on lex-smaller codepoints from elsewhere in the `IntervalSet`.
     #[test]
     fn test_run_length_encoding() {
         fn decode(table: &[(u32, char)]) -> String {
@@ -878,9 +873,9 @@ mod shrink_quality {
         assert_eq!(s, "0001");
     }
 
-    // Server-only: native's text provider doesn't seed Hypothesis's
-    // `NASTY_STRINGS` constant pool (mathematical-fraktur etc.), so
-    // 10 000 attempts can't reliably surface the witness.
+    // Without Hypothesis's `NASTY_STRINGS` constant pool
+    // (mathematical-fraktur etc.), 10 000 attempts can't reliably
+    // surface the witness.
     #[test]
     fn test_nasty_string_shrinks() {
         let s = Minimal::new(gs::text(), |s: &String| {
@@ -895,7 +890,8 @@ mod shrink_quality {
 
     #[test]
     fn test_bound5() {
-        let bounded_ints = || gs::vecs(gs::integers::<i64>().min_value(-100).max_value(0)).max_size(1);
+        let bounded_ints =
+            || gs::vecs(gs::integers::<i64>().min_value(-100).max_value(0)).max_size(1);
 
         let result: Bound5 = minimal(
             gs::tuples!(
@@ -920,8 +916,6 @@ mod shrink_quality {
         );
     }
 }
-
-
 
 mod collective_minimization {
     use std::collections::HashSet;
@@ -1105,6 +1099,8 @@ mod collective_minimization {
 
     #[test]
     fn test_can_collectively_minimize_filter_large_abs() {
-        check_collective_minimization(gs::integers::<i64>().filter(|x: &i64| *x > 100 || *x < -100));
+        check_collective_minimization(
+            gs::integers::<i64>().filter(|x: &i64| *x > 100 || *x < -100),
+        );
     }
 }

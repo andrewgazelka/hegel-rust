@@ -50,4 +50,3 @@ fn test_string_insertion_sort_swap_succeeds() {
     .run();
     assert_eq!(s, "ab");
 }
-

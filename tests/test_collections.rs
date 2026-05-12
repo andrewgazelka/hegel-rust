@@ -293,30 +293,7 @@ fn test_vec_unique_sampled_from_no_duplicates(tc: TestCase) {
     assert!(vec.len() <= 1);
 }
 
-// ── hypothesis/test_simple_collections.py ───────────────────────────────────
-
 mod simple_collections {
-    //! Individually-skipped tests:
-    //!
-    //! - `test_find_empty_collection_gives_empty` — partial port. The
-    //!   `tuples()`, `lists(none(), max_size=0)`, `sets(none(), max_size=0)`,
-    //!   and `fixed_dictionaries({})` rows are ported below. The remaining
-    //!   rows rely on public-API features with no hegel-rust counterpart:
-    //!   `gs::nothing()`, `gs::frozensets()`, `fixed_dictionaries(...,
-    //!   optional=...)`, and non-string `fixed_dictionaries` keys.
-    //! - `test_fixed_dictionaries_with_optional_and_empty_keys` — uses the
-    //!   `optional=` kwarg and `gs::nothing()`, neither of which exists.
-    //! - `test_minimize_dicts_with_incompatible_keys` — mixes `int` and `str`
-    //!   keys in one dict; Rust's type system makes this unrepresentable.
-    //! - `test_lists_unique_by_tuple_funcs` — uses
-    //!   `unique_by=(key_fn_1, key_fn_2)`; `VecGenerator` exposes only
-    //!   `.unique(bool)`, no `.unique_by(key_fn)` setter.
-    //! - `test_can_find_unique_lists_of_non_set_order` — Python retries under
-    //!   `@flaky` because its predicate depends on process-randomised set
-    //!   iteration order. hegel-rust's engine classifies a non-deterministic
-    //!   predicate as a flaky-test bug and raises `Flaky test detected`
-    //!   inside the property run, so the test can't be stabilised with an
-    //!   outer retry.
     //!
     //! `test_find_non_empty_collection_gives_single_zero` and
     //! `test_minimizes_to_empty` port the `list` and `set` parametrize rows
@@ -501,7 +478,9 @@ mod simple_collections {
             // overflow on extreme generated values.
             let l: Vec<i64> = minimal(
                 gs::vecs(gs::integers::<i64>()).min_size(n),
-                move |x: &Vec<i64>| x.iter().copied().map(i128::from).sum::<i128>() >= 2 * n as i128,
+                move |x: &Vec<i64>| {
+                    x.iter().copied().map(i128::from).sum::<i128>() >= 2 * n as i128
+                },
             );
             let expected: Vec<i64> = if n == 0 {
                 Vec::new()
@@ -532,8 +511,6 @@ mod simple_collections {
         assert!(xs.is_empty());
     }
 }
-
-// ── hypothesis/nocover/test_sets.py ─────────────────────────────────────────
 
 mod nocover_sets {
     use std::collections::HashSet;
@@ -569,8 +546,6 @@ mod nocover_sets {
     }
 }
 
-// ── hypothesis/nocover/test_large_examples.py ───────────────────────────────
-
 mod nocover_large_examples {
     use super::common::utils::find_any;
     use hegel::generators as gs;
@@ -583,11 +558,6 @@ mod nocover_large_examples {
         );
     }
 }
-
-// ── hypothesis/test_permutations.py ─────────────────────────────────────────
-// Dropped on test-port: gs::permutations() only exists on native.
-
-// ── hypothesis/test_sampled_from.py ─────────────────────────────────────────
 
 mod sampled_from {
     //! Tests that rely on Python-specific facilities are not ported:
@@ -640,8 +610,9 @@ mod sampled_from {
         expect_panic(
             || {
                 Hegel::new(|tc| {
-                    let _: i64 = tc
-                        .draw(gs::sampled_from((0..10).collect::<Vec<i64>>()).filter(|x: &i64| *x < 0));
+                    let _: i64 = tc.draw(
+                        gs::sampled_from((0..10).collect::<Vec<i64>>()).filter(|x: &i64| *x < 0),
+                    );
                 })
                 .settings(Settings::new().database(None))
                 .run();
@@ -780,6 +751,3 @@ mod sampled_from {
         );
     }
 }
-
-// ── hypothesis/test_feature_flags.py ────────────────────────────────────────
-

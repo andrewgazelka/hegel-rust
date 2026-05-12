@@ -179,8 +179,6 @@ impl TempRustProject {
             std::fs::copy(&lock_src, project_path.join("Cargo.lock")).unwrap();
         }
 
-        // (The native feature doesn't exist on this branch; subprocess projects
-        // start with no features set.)
         let features: Vec<String> = Vec::new();
 
         Self {

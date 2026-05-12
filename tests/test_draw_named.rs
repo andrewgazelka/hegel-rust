@@ -480,73 +480,12 @@ fn test_draw_named_repeatable_skips_taken_name() {
     .run();
 }
 
-// ── pbtkit/tests/test_draw_names.py ─────────────────────────────────────────
-
 mod draw_names {
     //! pbtkit's `draw_names` module is a Python-source rewriter (libcst + runtime
     //! `inspect.getsource` + import-time monkey-patching of `TestCase`) that turns
     //! `x = tc.draw(gen)` into `tc.draw_named(gen, "x", repeatable)`. Hegel-rust's
     //! equivalent is the `#[hegel::test]` proc macro, which does the same rewrite
     //! at compile time.
-    //!
-    //! Individually-skipped tests (rest of the file is ported):
-    //!
-    //! - Section A `test_draw_counter_resets_per_test_case`,
-    //!   `test_draw_counter_only_fires_when_print_results`: access
-    //!   `tc._draw_counter` on pbtkit's `TestCase` — a Python-internal attribute
-    //!   with no hegel-rust counterpart.
-    //! - Section A `test_choice_output_unchanged`: pbtkit's `tc.choice(n)` prints
-    //!   `choice(5): …`. Hegel-rust models the same via
-    //!   `tc.draw(gs::integers().min_value(0).max_value(n-1))` whose output shape
-    //!   is the generic `let draw_N = …;` format — the pbtkit-specific prefix is
-    //!   unrepresentable.
-    //! - Section A `test_weighted_output_unchanged`: uses `tc.weighted(p)`; no
-    //!   hegel-rust counterpart on `TestCase` (same policy as the other
-    //!   `weighted` skips in SKIPPED.md).
-    //! - Section B `test_draw_named_no_print_when_print_results_false`: pbtkit's
-    //!   `print_results=False` flag has no equivalent on hegel-rust's `TestCase`
-    //!   — replay-output gating is run-level (last-run flag), not per-testcase.
-    //! - Section C `test_rewriter_try_block_is_repeatable`: Python `try`/`except`
-    //!   has no stable Rust syntactic analog (no `try` blocks, no bare-block
-    //!   `except`), so "draw inside a try block becomes repeatable" has no
-    //!   direct Rust equivalent.
-    //! - Section C `test_rewriter_nested_function_is_repeatable`: the upstream
-    //!   comment notes the inner `tc.draw(...)` is a `return` expression, not an
-    //!   assignment, so the test drains output but asserts nothing — no
-    //!   observable behaviour to pin.
-    //! - Section D `test_auto_rewriting_without_decorator`: pbtkit's import-time
-    //!   `TestCase` monkey-patching is replaced in hegel-rust by the always-on
-    //!   `#[hegel::test]` macro — no "importing a module flips a switch" surface.
-    //! - Section D `test_rewrite_draws_with_closure`: tests that pbtkit's libcst
-    //!   rewriter preserves Python `__closure__` cell references. Rust's
-    //!   proc-macro rewrite operates on tokens, so closure-variable preservation
-    //!   is not a meaningful rewriter concern.
-    //! - Section E `test_importing_draw_names_enables_auto_rewriting`: same
-    //!   import-time monkey-patching as the Section D entry above.
-    //! - Section E `test_draw_named_stub_raises_before_import`: tests pbtkit's
-    //!   stub-before-import behaviour (`NotImplementedError` if `draw_names`
-    //!   isn't imported). Hegel-rust has no such stub; `__draw_named` is always
-    //!   available on `TestCase`.
-    //! - Section F `test_collector_trystar_marks_repeatable`,
-    //!   `test_collector_classdef_marks_repeatable`,
-    //!   `test_collector_chained_assignment_skipped`: direct uses of
-    //!   `cst.parse_module(...)` + `_DrawNameCollector` — external Python
-    //!   library (libcst) integration with no Rust surface.
-    //! - Section F `test_rewriter_multiple_targets_in_same_fn`: exercises Python
-    //!   chained assignment (`a = b = tc.draw(...)`), a Python-syntax construct
-    //!   that doesn't exist in Rust.
-    //! - Section F `test_rewriter_kwdefaults_preserved`: asserts
-    //!   `rewritten.__kwdefaults__ == {...}` — Python-specific
-    //!   keyword-only-default machinery.
-    //! - Section F `test_rewriter_draw_with_no_args`: pbtkit's `tc.draw()` takes
-    //!   no argument; hegel-rust's `tc.draw(g)` requires a generator, so the
-    //!   zero-arg case is unrepresentable in the Rust type system.
-    //! - Section F `test_rewrite_fallback_on_bad_source`: tests pbtkit's
-    //!   `inspect.getsource` fallback (runtime Python source reflection); the
-    //!   proc macro has no equivalent failure mode.
-    //! - Section F `test_hook_noop_when_original_test_is_none`: exercises
-    //!   pbtkit's internal `_draw_names_hook` against a `PbtkitState` with
-    //!   `_original_test is None` — an internal hook with no Rust counterpart.
 
     use super::common::utils::expect_panic;
     use hegel::generators as gs;

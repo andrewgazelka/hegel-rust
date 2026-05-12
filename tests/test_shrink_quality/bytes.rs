@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::common::utils::{Minimal, minimal};
 use hegel::generators as gs;
 
-
 #[test]
 fn test_redistribute_bytes_respects_max_size() {
     // redistribute_bytes must skip transfers that exceed max_size, and
@@ -50,7 +49,6 @@ fn test_bytes_sorts_when_order_matters() {
     .run();
     assert_eq!(v0, vec![0u8, 1, 0]);
 }
-
 
 #[test]
 fn test_bytes_redistribution_moves_all() {

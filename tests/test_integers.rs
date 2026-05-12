@@ -119,8 +119,6 @@ fn test_usize() {
     find_any(gs::integers::<usize>(), |&n| n == usize::MAX);
 }
 
-// ── hypothesis/test_numerics.py ─────────────────────────────────────────────
-
 mod numerics {
     use hegel::generators as gs;
     use hegel::{HealthCheck, Hegel, Settings};
@@ -186,11 +184,6 @@ mod numerics {
         .run();
     }
 }
-
-// ── hypothesis/quality/test_integers.py ─────────────────────────────────────
-
-
-// ── hypothesis/nocover/test_simple_numbers.py ───────────────────────────────
 
 mod nocover_simple_numbers {
     use super::common::utils::{Minimal, minimal};
@@ -570,8 +563,6 @@ mod nocover_simple_numbers {
         .run();
     }
 }
-
-// ── hypothesis/nocover/test_boundary_exploration.py ─────────────────────────
 
 mod nocover_boundary_exploration {
     use super::common::utils::Minimal;

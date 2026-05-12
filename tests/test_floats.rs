@@ -164,8 +164,6 @@ mod f64_tests {
     float_tests!(f64);
 }
 
-// ── pbtkit/test_floats.py ───────────────────────────────────────────────────
-
 mod pbtkit_floats {
     use crate::common::utils::{assert_all_examples, find_any, minimal};
     use hegel::generators as gs;
@@ -202,7 +200,7 @@ mod pbtkit_floats {
     fn test_draw_unbounded_float_rejects_nan() {
         // Upstream calls pbtkit's private `_draw_unbounded_float(rnd)` 10000
         // times to reliably hit its NaN-rejection-sampling branch. hegel-rust
-        // has no standalone equivalent (the logic is inlined in the native
+        // has no standalone equivalent (the logic is inlined in the
         // float-choice path), so port at the public-API layer: drawing 1000
         // unbounded floats with `allow_nan(false)` exercises the same property
         // (no NaN ever returned) through whichever rejection / re-sampling
@@ -452,19 +450,13 @@ mod pbtkit_floats {
         );
         assert!((-3.0..-2.0).contains(&f));
     }
-
-    // ── FloatChoice internals (native-gated) ────────────────────────────────
-
 }
-
-// ── hypothesis/test_cathetus.py ─────────────────────────────────────────────
-
-
-// ── hypothesis/test_float_nastiness.py ──────────────────────────────────────
 
 mod float_nastiness {
     use crate::common::utils::expect_panic;
-    use crate::common::utils::{assert_all_examples, check_can_generate_examples, find_any, minimal};
+    use crate::common::utils::{
+        assert_all_examples, check_can_generate_examples, find_any, minimal,
+    };
     use hegel::generators::{self as gs, Generator};
     use hegel::{Hegel, Settings};
 
@@ -705,9 +697,8 @@ mod float_nastiness {
         check_can_generate_examples(gs::floats::<f64>().min_value(-0.0).max_value(-0.0));
     }
 
-    // Validation-only tests: the server's Hypothesis rejects these invalid argument
-    // combinations with an InvalidArgument error. The native backend does not yet
-    // enforce these checks, so we gate the tests to server mode.
+    // Validation-only tests: Hypothesis rejects these invalid argument
+    // combinations with an InvalidArgument error.
 
     #[test]
     fn test_exclude_infinite_endpoint_is_invalid_min() {
@@ -795,14 +786,6 @@ mod float_nastiness {
         }
     }
 }
-
-// ── hypothesis/test_float_utils.py (native-gated) ───────────────────────────
-
-
-// ── hypothesis/test_subnormal_floats.py (native-gated) ──────────────────────
-
-
-// ── hypothesis/nocover/test_floating.py ─────────────────────────────────────
 
 mod nocover_floating {
     use crate::common::utils::{FindAny, assert_all_examples};
@@ -981,11 +964,6 @@ mod nocover_floating {
         .run();
     }
 
-    // Dropped on test-port: test_can_find_negative_and_signaling_nans_quiet_negative —
-    // depends on native's FloatGenerator::filter NaN fallback (FilteredFloat); the
-    // server-backed Generator::filter has insufficient NaN-mantissa coverage on this
-    // variant to satisfy the condition within budget.
-
     #[test]
     fn test_can_find_negative_and_signaling_nans_signaling_positive() {
         FindAny::new(
@@ -1034,8 +1012,6 @@ mod nocover_floating {
         .run();
     }
 }
-
-// ── hypothesis/quality/test_float_shrinking.py ──────────────────────────────
 
 mod quality_float_shrinking {
     use crate::common::utils::minimal;
