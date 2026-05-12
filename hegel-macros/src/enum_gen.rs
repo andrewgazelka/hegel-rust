@@ -1,3 +1,4 @@
+use heck::ToSnakeCase;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{DeriveInput, Fields, Variant};
@@ -58,6 +59,83 @@ fn variant_field_types(variant: &Variant) -> Vec<&syn::Type> {
     }
 }
 
+fn variant_snake_ident(variant_name: &syn::Ident) -> syn::Ident {
+    rust_ident(&variant_snake_name(variant_name), variant_name.span())
+}
+
+fn variant_snake_name(variant_name: &syn::Ident) -> String {
+    let variant_name = variant_name.to_string();
+    let variant_name = variant_name.strip_prefix("r#").unwrap_or(&variant_name);
+    variant_name.to_snake_case()
+}
+
+fn rust_ident(name: &str, span: proc_macro2::Span) -> syn::Ident {
+    if matches!(name, "crate" | "self" | "super" | "Self") {
+        syn::Ident::new(&format!("{name}_"), span)
+    } else if is_keyword(name) {
+        syn::Ident::new_raw(name, span)
+    } else {
+        syn::Ident::new(name, span)
+    }
+}
+
+fn is_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "abstract"
+            | "as"
+            | "async"
+            | "await"
+            | "become"
+            | "box"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "do"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "final"
+            | "fn"
+            | "for"
+            | "gen"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "override"
+            | "priv"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "try"
+            | "type"
+            | "typeof"
+            | "unsized"
+            | "unsafe"
+            | "use"
+            | "virtual"
+            | "where"
+            | "while"
+            | "yield"
+    )
+}
+
 /// Derive Generator for an enum.
 pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -> TokenStream {
     let enum_name = &input.ident;
@@ -78,35 +156,54 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
         .map(|variant| generate_variant_generator(enum_name, variant))
         .collect();
 
-    // Generate field definitions for the main generator struct
-    // Using PascalCase field names to match variant names
+    // Generate field definitions for the main generator struct.
     let generator_fields: Vec<_> = data_variants
         .iter()
         .map(|variant| {
             let variant_name = &variant.ident;
+            let variant_field = variant_snake_ident(variant_name);
             quote! {
-                pub #variant_name: hegel::generators::BoxedGenerator<'a, #enum_name>
+                pub #variant_field: hegel::generators::BoxedGenerator<'a, #enum_name>
             }
         })
         .collect();
 
-    // Generate default_VariantName() methods (take &self so they're accessible via default())
+    // Generate default_variant_name() methods (take &self so they're accessible via default()).
     let default_methods: Vec<_> = data_variants
         .iter()
         .map(|variant| {
             let variant_name = &variant.ident;
             let variant_generator_name = format_ident!("{}{}Generator", enum_name, variant_name);
-            let default_method_name = format_ident!("default_{}", variant_name);
+            let default_method_name = format_ident!("default_{}", variant_snake_name(variant_name));
 
             let bounds = default_gen_bounds(&variant_field_types(variant), quote! { 'a });
 
-            quote! {
+            let primary = quote! {
                 /// Get the default generator for the #variant_name variant.
                 pub fn #default_method_name(&self) -> #variant_generator_name<'a>
                 where
                     #(#bounds,)*
                 {
                     #variant_generator_name::new()
+                }
+            };
+
+            let legacy_method_name = format_ident!("default_{}", variant_name);
+            if legacy_method_name == default_method_name {
+                primary
+            } else {
+                quote! {
+                    #primary
+
+                    /// Get the default generator for the #variant_name variant.
+                    #[allow(non_snake_case)]
+                    #[doc(hidden)]
+                    pub fn #legacy_method_name(&self) -> #variant_generator_name<'a>
+                    where
+                        #(#bounds,)*
+                    {
+                        self.#default_method_name()
+                    }
                 }
             }
         })
@@ -117,10 +214,11 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
         .iter()
         .map(|variant| {
             let variant_name = &variant.ident;
+            let variant_field = variant_snake_ident(variant_name);
             let variant_generator_name = format_ident!("{}{}Generator", enum_name, variant_name);
 
             quote! {
-                #variant_name: #variant_generator_name::new().boxed()
+                #variant_field: #variant_generator_name::new().boxed()
             }
         })
         .collect();
@@ -131,21 +229,40 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
         .flat_map(|variant| default_gen_bounds(&variant_field_types(variant), quote! { 'a }))
         .collect();
 
-    // Generate VariantName() builder methods
+    // Generate variant_name() builder methods.
     let with_methods: Vec<_> = data_variants
         .iter()
         .map(|variant| {
             let variant_name = &variant.ident;
+            let variant_field = variant_snake_ident(variant_name);
+            let method_name = variant_field.clone();
 
-            quote! {
+            let primary = quote! {
                 /// Set a custom generator for the #variant_name variant.
-                #[allow(non_snake_case)]
-                pub fn #variant_name<G>(mut self, generator: G) -> Self
+                pub fn #method_name<G>(mut self, generator: G) -> Self
                 where
                     G: hegel::generators::Generator<#enum_name> + Send + Sync + 'a,
                 {
-                    self.#variant_name = generator.boxed();
+                    self.#variant_field = generator.boxed();
                     self
+                }
+            };
+
+            if method_name == *variant_name {
+                primary
+            } else {
+                quote! {
+                    #primary
+
+                    /// Set a custom generator for the #variant_name variant.
+                    #[allow(non_snake_case)]
+                    #[doc(hidden)]
+                    pub fn #variant_name<G>(self, generator: G) -> Self
+                    where
+                        G: hegel::generators::Generator<#enum_name> + Send + Sync + 'a,
+                    {
+                        self.#method_name(generator)
+                    }
                 }
             }
         })
@@ -173,9 +290,10 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
         .enumerate()
         .map(|(i, variant)| {
             let variant_name = &variant.ident;
+            let variant_field = variant_snake_ident(variant_name);
             match classify_variant(variant) {
                 VariantKind::Unit => quote! { #i => #enum_name::#variant_name },
-                _ => quote! { #i => self.#variant_name.do_draw(__tc) },
+                _ => quote! { #i => self.#variant_field.do_draw(__tc) },
             }
         })
         .collect();
@@ -202,12 +320,10 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
     } else {
         quote! {
             /// Generated generator for #enum_name.
-            #[allow(non_snake_case)]
             pub struct #generator_name<'a> {
                 #(#generator_fields,)*
             }
 
-            #[allow(non_snake_case)]
             impl<'a> #generator_name<'a> {
                 /// Create a new generator with default generators for all variants.
                 pub fn new() -> Self
@@ -283,9 +399,10 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
             .iter()
             .map(|variant| {
                 let variant_name = &variant.ident;
-                let basic_name = format_ident!("basic_{}", variant_name);
+                let variant_field = variant_snake_ident(variant_name);
+                let basic_name = format_ident!("basic_{}", variant_snake_name(variant_name));
                 quote! {
-                    let #basic_name = self.#variant_name.as_basic()?;
+                    let #basic_name = self.#variant_field.as_basic()?;
                 }
             })
             .collect();
@@ -301,7 +418,7 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
             .map(|variant| match classify_variant(variant) {
                 VariantKind::Unit => null_schema.clone(),
                 _ => {
-                    let basic_name = format_ident!("basic_{}", variant.ident);
+                    let basic_name = format_ident!("basic_{}", variant_snake_name(&variant.ident));
                     quote! { #basic_name.schema().clone() }
                 }
             })
@@ -315,7 +432,8 @@ pub(crate) fn derive_enum_generator(input: &DeriveInput, data: &syn::DataEnum) -
                 match classify_variant(variant) {
                     VariantKind::Unit => quote! { #i => #enum_name::#variant_name },
                     _ => {
-                        let basic_name = format_ident!("basic_{}", variant_name);
+                        let basic_name =
+                            format_ident!("basic_{}", variant_snake_name(variant_name));
                         quote! { #i => #basic_name.parse_raw(value) }
                     }
                 }

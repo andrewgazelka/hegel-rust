@@ -1,7 +1,4 @@
 #![allow(dead_code)]
-// The derive macro generates variables like `basic_Circle` instead of `basic_circle`.
-// This is a known issue in the macro; suppress until fixed.
-#![allow(non_snake_case)]
 
 mod common;
 
@@ -334,9 +331,9 @@ fn test_derive_enum_with_nested_types() {
 #[test]
 fn test_derive_enum_variant_generator_named_fields() {
     // Use per-variant generator directly to constrain fields
-    let g = Shape::default_generator().Circle(
+    let g = Shape::default_generator().circle(
         Shape::default_generator()
-            .default_Circle()
+            .default_circle()
             .radius(gs::floats().min_value(1.0).max_value(10.0)),
     );
     assert_all_examples(g, |s: &Shape| match s {
@@ -347,9 +344,9 @@ fn test_derive_enum_variant_generator_named_fields() {
 
 #[test]
 fn test_derive_enum_variant_generator_single_tuple() {
-    let g = MixedEnum::default_generator().WithValue(
+    let g = MixedEnum::default_generator().with_value(
         MixedEnum::default_generator()
-            .default_WithValue()
+            .default_with_value()
             .value(gs::integers().min_value(0_i32).max_value(100)),
     );
     assert_all_examples(g, |m: &MixedEnum| match m {
@@ -360,9 +357,9 @@ fn test_derive_enum_variant_generator_single_tuple() {
 
 #[test]
 fn test_derive_enum_variant_generator_with_named_fields() {
-    let g = MixedEnum::default_generator().WithFields(
+    let g = MixedEnum::default_generator().with_fields(
         MixedEnum::default_generator()
-            .default_WithFields()
+            .default_with_fields()
             .x(gs::just(99)),
     );
     assert_all_examples(g, |m: &MixedEnum| match m {

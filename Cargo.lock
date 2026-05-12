@@ -231,6 +231,7 @@ dependencies = [
 name = "hegeltest-macros"
 version = "0.12.3"
 dependencies = [
+ "heck",
  "proc-macro2",
  "quote",
  "syn",
