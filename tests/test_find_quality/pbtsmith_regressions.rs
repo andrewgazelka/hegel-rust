@@ -62,7 +62,6 @@ fn test_non_negative_float_is_not_always_positive() {
 }
 
 #[test]
-#[ignore = "conjunction of empty bytes + zero is hard to find reliably (xfail upstream)"]
 fn test_empty_bytes_with_wide_dependent_range() {
     expect_panic(
         || {
@@ -86,7 +85,6 @@ fn test_empty_bytes_with_wide_dependent_range() {
 }
 
 #[test]
-#[ignore = "conjunction of empty bytes + zero depends on random seed (xfail upstream)"]
 fn test_empty_bytes_with_dependent_condition() {
     expect_panic(
         || {
