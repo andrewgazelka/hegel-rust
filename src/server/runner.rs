@@ -323,6 +323,8 @@ pub fn server_run<F>(
         return;
     }
 
+    let quiet = settings.verbosity == crate::runner::Verbosity::Quiet;
+
     match result.failures.as_slice() {
         // `test_failed` was set but no Failure surfaced — e.g. an aborted
         // mid-draw test case or a backend that reported failure without
@@ -332,7 +334,9 @@ pub fn server_run<F>(
         // harnesses that pattern-match on `"Property test failed: <msg>"`
         // (e.g. `Minimal::run` in `tests/common/utils.rs`) keep working.
         [failure] => {
-            eprint!("{}", failure.diagnostic);
+            if !quiet {
+                eprint!("{}", failure.diagnostic);
+            }
             panic!("Property test failed: {}", failure.panic_message);
         }
         // Multi-failure path: emit a header, print each replay's
@@ -340,9 +344,11 @@ pub fn server_run<F>(
         // see the headline figure rather than just one of the messages.
         failures => {
             let n = failures.len();
-            eprintln!("Hegel found {} failing test cases:", n);
-            for failure in failures {
-                eprint!("{}", failure.diagnostic);
+            if !quiet {
+                eprintln!("Hegel found {} failing test cases:", n);
+                for failure in failures {
+                    eprint!("{}", failure.diagnostic);
+                }
             }
             panic!("Property-based test failed with {} distinct failures.", n);
         }
