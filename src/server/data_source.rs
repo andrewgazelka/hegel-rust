@@ -1,4 +1,4 @@
-use crate::backend::{DataSource, DataSourceError};
+use crate::backend::{DataSource, DataSourceError, TestCaseResult};
 use crate::cbor_utils::{cbor_map, map_insert};
 use crate::runner::Verbosity;
 use crate::server::protocol::{Connection, Stream};
@@ -9,6 +9,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use super::process::server_crash_message;
+
+/// Per-test-case outcome handle shared between [`ServerDataSource`] and
+/// the engine that owns it.  Populated by `mark_complete` and consumed by
+/// the engine via [`ServerDataSource::take_outcome`] after the test body
+/// returns — same shape as the native backend's outcome channel, so both
+/// backends go through the [`DataSource`] interface for per-test-case
+/// results.
+pub(crate) type ServerOutcomeHandle = Arc<Mutex<Option<TestCaseResult>>>;
 
 /// Read `HEGEL_PROTOCOL_DEBUG` and decide whether protocol debug logging is on.
 /// Extracted so tests can exercise the env-var → bool mapping without going
@@ -35,22 +43,47 @@ pub(crate) struct ServerDataSource {
     verbosity: Verbosity,
     /// Labels seen by `target_observation` this test case. Used to reject
     /// duplicate observations of the same label, mirroring
-    /// `NativeDataSource::target_observation` (post-A16) and upstream
-    /// `hypothesis.control.target` (`control.py:354-356,372-376`). One
-    /// `ServerDataSource` is constructed per test case (see
+    /// upstream `hypothesis.control.target` (`control.py:354-356,372-376`).
+    /// One `ServerDataSource` is constructed per test case (see
     /// `session.rs:236,378,443`), so this is per-test-case state.
     target_labels: Mutex<HashSet<String>>,
+    /// Outcome reported by [`DataSource::mark_complete`].  Shared with the
+    /// engine via [`ServerOutcomeHandle`] so the engine reads it back
+    /// through the same `DataSource` interface the native backend uses.
+    outcome: ServerOutcomeHandle,
 }
 
 impl ServerDataSource {
-    pub(crate) fn new(connection: Arc<Connection>, stream: Stream, verbosity: Verbosity) -> Self {
-        ServerDataSource {
-            connection,
-            stream: Mutex::new(stream),
-            aborted: AtomicBool::new(false),
-            verbosity,
-            target_labels: Mutex::new(HashSet::new()),
-        }
+    pub(crate) fn new(
+        connection: Arc<Connection>,
+        stream: Stream,
+        verbosity: Verbosity,
+    ) -> (Self, ServerOutcomeHandle) {
+        let outcome: ServerOutcomeHandle = Arc::new(Mutex::new(None));
+        let handle = Arc::clone(&outcome);
+        (
+            ServerDataSource {
+                connection,
+                stream: Mutex::new(stream),
+                aborted: AtomicBool::new(false),
+                verbosity,
+                target_labels: Mutex::new(HashSet::new()),
+                outcome,
+            },
+            handle,
+        )
+    }
+
+    /// Read the outcome reported via [`DataSource::mark_complete`].
+    ///
+    /// Panics if `mark_complete` was never called; the cross-backend
+    /// lifecycle in `run_lifecycle::run_test_case` guarantees it always is.
+    pub(crate) fn take_outcome(handle: &ServerOutcomeHandle) -> TestCaseResult {
+        handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .expect("mark_complete must be called for every test case")
     }
 
     fn send_request(&self, command: &str, payload: &Value) -> Result<Value, DataSourceError> {
@@ -258,7 +291,23 @@ impl DataSource for ServerDataSource {
         );
     }
 
-    fn mark_complete(&self, status: &str, origin: Option<&str>) {
+    fn mark_complete(&self, result: &TestCaseResult) {
+        // Record the outcome on the shared handle for the engine — same
+        // path the native backend uses.
+        *self.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result.clone());
+
+        // Don't forward to the server if the test case aborted mid-draw
+        // (StopTest / overflow): the server has already closed the stream
+        // and is no longer interested in this test case's verdict.
+        if self.aborted.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let (status, origin) = match result {
+            TestCaseResult::Valid => ("VALID", None),
+            TestCaseResult::Invalid | TestCaseResult::Overrun => ("INVALID", None),
+            TestCaseResult::Interesting(f) => ("INTERESTING", Some(f.origin.as_str())),
+        };
         let origin_value = match origin {
             Some(s) => Value::Text(s.to_string()),
             None => Value::Null,

@@ -100,14 +100,6 @@ fn new_pool_pool_add_and_pool_generate_non_consuming() {
 }
 
 #[test]
-fn mark_complete_is_noop() {
-    let (ds, _handle) = random_source();
-    ds.mark_complete("VALID", None);
-    ds.mark_complete("INTERESTING", Some("origin"));
-    assert!(!ds.test_aborted());
-}
-
-#[test]
 fn generate_stoptest_sets_aborted_and_short_circuits() {
     let (ds, _handle) = exhausted_source();
     let schema = cbor_map! {
@@ -148,40 +140,12 @@ fn generate_integer_round_trips() {
     assert_eq!(n, ciborium::Value::Integer(5.into()));
 }
 
-// ── A16: target_observation rejects non-finite scores and duplicate labels ──
-//
-// Mirror upstream `hypothesis.control.target` (`control.py:354,356,372`):
-// an `int|float` observation is checked for finiteness (`InvalidArgument`
-// on NaN/inf), and a label that already has a recorded observation
-// raises `InvalidArgument` rather than silently overwriting.  Pre-A16,
-// `NativeDataSource::target_observation` did `target_observations.insert`
-// without either guard.
+// `tc.target()` is not yet implemented in the native backend — calling it
+// raises `todo!()`. The Phase::Target work will land in a follow-up PR.
 
 #[test]
-#[should_panic(expected = "finite")]
-fn target_observation_rejects_nan() {
-    let (ds, _handle) = random_source();
-    ds.target_observation(f64::NAN, "x");
-}
-
-#[test]
-#[should_panic(expected = "finite")]
-fn target_observation_rejects_positive_infinity() {
-    let (ds, _handle) = random_source();
-    ds.target_observation(f64::INFINITY, "x");
-}
-
-#[test]
-#[should_panic(expected = "finite")]
-fn target_observation_rejects_negative_infinity() {
-    let (ds, _handle) = random_source();
-    ds.target_observation(f64::NEG_INFINITY, "x");
-}
-
-#[test]
-#[should_panic(expected = "overwrite")]
-fn target_observation_rejects_duplicate_label() {
+#[should_panic(expected = "not yet supported by the native backend")]
+fn target_observation_raises_todo() {
     let (ds, _handle) = random_source();
     ds.target_observation(1.0, "x");
-    ds.target_observation(2.0, "x");
 }

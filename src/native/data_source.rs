@@ -1,23 +1,35 @@
 // Native backend DataSource implementation.
 //
 // Wraps a NativeTestCase behind interior mutability so it can implement
-// the DataSource trait (which takes &self).  The Rc<RefCell<...>> handle
-// is shared with the runner so it can extract nodes/spans after the test.
+// the DataSource trait (which takes &self).  The handle is shared with
+// the engine so it can read back the recorded nodes / spans and, via
+// `mark_complete`, the test case outcome after the test body returns.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ciborium::Value;
 
-use crate::backend::{DataSource, DataSourceError};
+use crate::backend::{DataSource, DataSourceError, TestCaseResult};
 use crate::native::core::{ChoiceNode, NativeTestCase, Span};
 use crate::native::schema;
 
-/// Shared handle to the underlying `NativeTestCase`.
-///
-/// Both `NativeDataSource` and the caller hold a clone of this handle.
-/// After the test case completes, the caller reads nodes/spans from it.
-pub type NativeTestCaseHandle = Arc<Mutex<NativeTestCase>>;
+/// Per-test-case state shared between `NativeDataSource` and the engine
+/// that owns the handle.  The engine constructs both halves up-front,
+/// hands the data source into the test body, and then reads back nodes,
+/// spans, and the outcome (populated by `mark_complete`) through the
+/// handle.
+pub struct NativeTestCaseInner {
+    pub ntc: NativeTestCase,
+    /// Set by [`DataSource::mark_complete`] after the test body returns.
+    /// `None` only if `mark_complete` was never called — which the lifecycle
+    /// in `run_lifecycle::run_test_case` guarantees won't happen — so the
+    /// engine can safely unwrap when reading the outcome back.
+    pub outcome: Option<TestCaseResult>,
+}
+
+/// Shared handle to the per-test-case inner state.
+pub type NativeTestCaseHandle = Arc<Mutex<NativeTestCaseInner>>;
 
 pub struct NativeDataSource {
     inner: NativeTestCaseHandle,
@@ -27,10 +39,11 @@ pub struct NativeDataSource {
 impl NativeDataSource {
     /// Create a new `NativeDataSource` and return a shared handle.
     ///
-    /// The handle can be used to extract `nodes` and `spans` after the
-    /// test case has finished running.
+    /// The handle is the only way the engine reads back per-test-case
+    /// state: choice nodes, spans, and the outcome reported by
+    /// [`DataSource::mark_complete`].
     pub fn new(ntc: NativeTestCase) -> (Self, NativeTestCaseHandle) {
-        let inner = Arc::new(Mutex::new(ntc));
+        let inner = Arc::new(Mutex::new(NativeTestCaseInner { ntc, outcome: None }));
         let handle = Arc::clone(&inner);
         (
             NativeDataSource {
@@ -46,6 +59,7 @@ impl NativeDataSource {
         handle
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .ntc
             .nodes
             .clone()
     }
@@ -55,17 +69,31 @@ impl NativeDataSource {
         handle
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .ntc
             .spans
             .clone()
             .into_vec()
+    }
+
+    /// Read the outcome reported via [`DataSource::mark_complete`].
+    ///
+    /// Panics if `mark_complete` was never called; the cross-backend
+    /// lifecycle in `run_lifecycle::run_test_case` guarantees it always is.
+    pub fn take_outcome(handle: &NativeTestCaseHandle) -> TestCaseResult {
+        handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .outcome
+            .take()
+            .expect("mark_complete must be called for every test case")
     }
 
     fn dispatch(&self, command: &str, payload: &Value) -> Result<Value, DataSourceError> {
         if self.aborted.load(Ordering::Relaxed) {
             return Err(DataSourceError::StopTest);
         }
-        let mut ntc = self.inner.lock().unwrap();
-        schema::dispatch_request(&mut ntc, command, payload).map_err(|_stop| {
+        let mut inner = self.inner.lock().unwrap();
+        schema::dispatch_request(&mut inner.ntc, command, payload).map_err(|_stop| {
             self.aborted.store(true, Ordering::Relaxed);
             DataSourceError::StopTest
         })
@@ -160,35 +188,21 @@ impl DataSource for NativeDataSource {
         Ok(i.into())
     }
 
-    fn target_observation(&self, score: f64, label: &str) {
-        // Mirror `hypothesis.control.target` (`control.py:354-356,372-376`):
-        // observations must be finite and each label may be observed at
-        // most once per test case.  Pre-A16 we silently accepted both —
-        // a NaN observation poisoned the targeting search, and a duplicate
-        // label silently overwrote the earlier value (so a single test
-        // case could lose information about which `target()` call ran
-        // first).  Both are now hard errors so the user notices the bug.
-        if !score.is_finite() {
-            panic!(
-                "tc.target({score}, label={label:?}) requires a finite score; \
-                 got non-finite value"
-            );
-        }
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(prev) = inner.target_observations.get(label) {
-            panic!(
-                "tc.target({score}, label={label:?}) would overwrite \
-                 previous tc.target({prev}, label={label:?}); \
-                 each label can be observed at most once per test case"
-            );
-        }
-        inner.target_observations.insert(label.to_string(), score);
+    fn target_observation(&self, _score: f64, _label: &str) {
+        todo!(
+            "tc.target() is not yet supported by the native backend; \
+             Phase::Target will land in a follow-up PR"
+        );
     }
 
-    fn mark_complete(&self, _status: &str, _origin: Option<&str>) {
-        // No-op for native: the per-test-case status/origin flow back
-        // to `NativeTestRunner` via the `TestCaseResult` returned from
-        // the shared `run_case` callback, not via the data source.
+    fn mark_complete(&self, result: &TestCaseResult) {
+        // Record the outcome on the shared handle so the engine can read
+        // it via `take_outcome` after the test body returns.  This is the
+        // sole cross-backend channel for per-test-case results — both the
+        // server backend and this one consume `mark_complete` through the
+        // same `DataSource` interface.
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.outcome = Some(result.clone());
     }
 
     fn test_aborted(&self) -> bool {

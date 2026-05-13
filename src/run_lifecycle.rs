@@ -186,15 +186,14 @@ pub(crate) fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
 /// Run the user's test body once for the supplied [`DataSource`], catching
 /// any panic and translating it to a [`TestCaseResult`].
 ///
-/// Also reports the outcome back to the data source via
-/// [`TestCase::mark_complete`] so backends that need to forward outcome
-/// information (the server protocol speaks to Hypothesis) can. On the
-/// `Interesting` path, formats the panic's captured `file:line:col` into
-/// the cross-backend `origin` string that `mark_complete` carries; this is
-/// also surfaced inside [`TestCaseResult::Interesting`] so a [`TestRunner`]
-/// implementation that wants to key per-origin shrinking (the native
-/// engine's multi-origin tracking) can read it directly without poking at
-/// thread-locals.
+/// Reports the outcome back through the [`DataSource`] interface via
+/// [`TestCase::mark_complete`]: that is the single cross-backend channel
+/// for per-test-case results.  Both backends consume it the same way (the
+/// server forwards it to Hypothesis; the native engine reads it back off
+/// the data-source handle); neither backend looks at the return value of
+/// this function for the outcome.  On the `Interesting` path the panic
+/// site is captured as a `file:line:col` string and stored on the
+/// [`Failure`] so per-origin shrinking can key on it.
 pub(crate) fn run_test_case(
     data_source: Box<dyn DataSource>,
     test_fn: &mut dyn FnMut(TestCase),
@@ -230,14 +229,7 @@ pub(crate) fn run_test_case(
         }
     };
 
-    if !tc.test_aborted() {
-        let (status, origin) = match &tc_result {
-            TestCaseResult::Valid => ("VALID", None),
-            TestCaseResult::Invalid | TestCaseResult::Overrun => ("INVALID", None),
-            TestCaseResult::Interesting(f) => ("INTERESTING", Some(f.origin.as_str())),
-        };
-        tc.mark_complete(status, origin);
-    }
+    tc.mark_complete(&tc_result);
 
     let _ = (is_final, verbosity);
     tc_result
@@ -307,7 +299,6 @@ pub(crate) fn drive<R, F>(
         if matches!(&tc_result, TestCaseResult::Interesting(_)) {
             got_interesting.store(true, Ordering::SeqCst);
         }
-        tc_result
     });
 
     let test_failed = !result.passed || got_interesting.load(Ordering::SeqCst);

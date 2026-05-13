@@ -18,15 +18,21 @@
 //
 // Storage layout (directory backend):
 //
-//   db_root/<fnv_hex(key)>/<fnv_hex(value)>
+//   db_root/<key_hash(key)>/<fnv_hex(value)>
 //
-// where the file contents are the raw value bytes. `serialize_choices`
-// and `deserialize_choices` are the canonical binary encoding used for
-// ChoiceValue sequences (the value bytes); they are kept here so that
-// the replay path in `test_runner.rs` can round-trip them.
+// where `key_hash(k) = fnv_hex(b"native:" ++ k)` and the file contents
+// are the raw value bytes.  `serialize_choices` and `deserialize_choices`
+// are the canonical binary encoding used for ChoiceValue sequences (the
+// value bytes); they are kept here so that the replay path in
+// `test_runner.rs` can round-trip them.
 //
 // The on-disk format is deliberately not cross-compatible with
-// Hypothesis's `DirectoryBasedExampleDatabase`.
+// Hypothesis's `DirectoryBasedExampleDatabase`.  The `native:` key
+// prefix means even if a user accidentally points `database` at
+// `.hypothesis/examples`, our hashes are disjoint from Hypothesis's
+// and the two stores can't overwrite each other's entries.  It also
+// leaves room for a future `core:`-prefixed store (the eventual full
+// hegel-core / pbtkit backend) to live at the same `db_root`.
 
 use std::any::Any;
 use std::path::PathBuf;
@@ -81,6 +87,20 @@ pub trait ExampleDatabase: Send + Sync {
 /// `DirectoryBasedExampleDatabase._metakeys_name` (`.hypothesis-keys`).
 pub const METAKEYS_NAME: &[u8] = b".hegel-keys";
 
+/// Prefix prepended to every key before it's hashed onto disk.  Keeps
+/// `NativeDatabase`'s on-disk hashes disjoint from a Hypothesis store
+/// (or a future hegel `core:` store) that happens to share `db_root`:
+/// the formats aren't cross-compatible, so we never want their paths
+/// to coincide.
+const KEY_PREFIX: &[u8] = b"native:";
+
+fn key_hash(key: &[u8]) -> String {
+    let mut buf = Vec::with_capacity(KEY_PREFIX.len() + key.len());
+    buf.extend_from_slice(KEY_PREFIX);
+    buf.extend_from_slice(key);
+    fnv_hex(&buf)
+}
+
 pub struct NativeDatabase {
     db_root: PathBuf,
     metakeys_hash: String,
@@ -90,12 +110,12 @@ impl NativeDatabase {
     pub fn new(db_root: &str) -> Self {
         NativeDatabase {
             db_root: PathBuf::from(db_root),
-            metakeys_hash: fnv_hex(METAKEYS_NAME),
+            metakeys_hash: key_hash(METAKEYS_NAME),
         }
     }
 
     pub fn key_path(&self, key: &[u8]) -> PathBuf {
-        self.db_root.join(fnv_hex(key))
+        self.db_root.join(key_hash(key))
     }
 
     fn value_path(&self, key: &[u8], value: &[u8]) -> PathBuf {
@@ -123,7 +143,7 @@ impl ExampleDatabase for NativeDatabase {
         // Hypothesis keeps a "metakeys" entry — a bookkeeping key whose
         // values are the raw bytes of every other key ever saved. Avoid
         // infinite recursion when we're already saving under it.
-        if fnv_hex(key) != self.metakeys_hash {
+        if key_hash(key) != self.metakeys_hash {
             self.save(METAKEYS_NAME, key);
         }
         let dir = self.key_path(key);
@@ -143,7 +163,7 @@ impl ExampleDatabase for NativeDatabase {
         }
         // `remove_dir` only succeeds if the directory is empty; that's
         // exactly the "value was the last entry" case.
-        if std::fs::remove_dir(self.key_path(key)).is_ok() && fnv_hex(key) != self.metakeys_hash {
+        if std::fs::remove_dir(self.key_path(key)).is_ok() && key_hash(key) != self.metakeys_hash {
             self.delete(METAKEYS_NAME, key);
         }
     }

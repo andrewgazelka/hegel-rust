@@ -56,7 +56,7 @@ impl TestRunner for NativeTestRunner {
         &self,
         settings: &Settings,
         database_key: Option<&str>,
-        run_case: &mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
+        run_case: &mut dyn FnMut(Box<dyn DataSource>, bool),
     ) -> TestRunResult {
         if settings.mode == Mode::SingleTestCase {
             return run_single(settings, run_case);
@@ -68,7 +68,7 @@ impl TestRunner for NativeTestRunner {
 /// Run a single test case (used by `Mode::SingleTestCase`).
 fn run_single(
     settings: &Settings,
-    run_case: &mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
+    run_case: &mut dyn FnMut(Box<dyn DataSource>, bool),
 ) -> TestRunResult {
     // Honour `settings.seed` / `settings.derandomize` here for the same
     // reason `run_main` does: callers (Antithesis runs especially) pass
@@ -77,9 +77,9 @@ fn run_single(
     // is silently ignored and each call produces fresh OS-random draws.
     let mut rng = create_rng(settings, None);
     let ntc = NativeTestCase::new_random(SmallRng::from_rng(&mut rng));
-    let (data_source, _handle) = NativeDataSource::new(ntc);
-    let result = run_case(Box::new(data_source), true);
-    match result {
+    let (data_source, handle) = NativeDataSource::new(ntc);
+    run_case(Box::new(data_source), true);
+    match NativeDataSource::take_outcome(&handle) {
         TestCaseResult::Interesting(failure) => TestRunResult {
             passed: false,
             failures: vec![failure],
@@ -96,7 +96,7 @@ fn run_single(
 fn run_main(
     settings: &Settings,
     database_key: Option<&str>,
-    run_case: &mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
+    run_case: &mut dyn FnMut(Box<dyn DataSource>, bool),
 ) -> TestRunResult {
     let mut rng = create_rng(settings, database_key);
     let max_examples = settings.test_cases;
@@ -129,19 +129,11 @@ fn run_main(
     // is what makes a single test that fails with several distinct bugs
     // surface each one.
     let mut interesting: HashMap<String, Vec<ChoiceNode>> = HashMap::new();
-    let mut representative_origin: Option<String> = None;
     let mut valid_test_cases: u64 = 0;
     let mut calls: u64 = 0;
     let mut test_is_trivial = false;
     let mut invalid_calls: u64 = 0;
     let mut total_test_time = std::time::Duration::ZERO;
-    // `tc.target()` / `tc.target_labelled()` only steer the search when
-    // `Phase::Target` is in the active phase set, mirroring upstream
-    // (`engine.py:_run` lines 1543-1546 only invokes the targeting path
-    // when the phase is enabled). The user's test body can still call
-    // these methods unconditionally — they just become a no-op for
-    // search-steering purposes when the phase is disabled.
-    let _target_phase_enabled = settings.phases.contains(&Phase::Target);
     let mut replay_aligned = false;
 
     // --- Database replay phase ---
@@ -175,9 +167,6 @@ fn run_main(
                     let origin = run.origin.unwrap_or_default();
                     if run.nodes.len() != stored_choices.len() {
                         replay_aligned = false;
-                    }
-                    if representative_origin.is_none() {
-                        representative_origin = Some(origin.clone());
                     }
                     update_interesting(&mut interesting, origin, run.nodes);
                 } else {
@@ -308,27 +297,21 @@ fn run_main(
 
             if run.status == Status::Interesting {
                 let origin = run.origin.clone().unwrap_or_default();
-                if representative_origin.is_none() {
-                    representative_origin = Some(origin.clone());
-                }
                 if first_bug_at.is_none() {
                     first_bug_at = Some(calls);
                 }
                 last_bug_at = Some(calls);
                 update_interesting(&mut interesting, origin, run.nodes.clone());
             } else if run.status == Status::Valid {
-                // N3: bump `calls` by the *actual* number of probes
-                // try_span_mutation ran, not the maximum. Pre-N3 the
-                // accounting overcharged by 5 per Valid case in tests
-                // with no repeated span labels (try_span_mutation
-                // short-circuits with multi.is_empty() and runs 0 probes).
+                // Bump `calls` by the *actual* number of probes
+                // `try_span_mutation` ran, not the maximum: when no labels
+                // have ≥2 occurrences (or when the first probe fires
+                // Interesting) the closure short-circuits below
+                // `SPAN_MUTATION_ATTEMPTS`.
                 let (mutation_result, mutation_attempts) =
                     try_span_mutation(&run.nodes, &run.spans, &mut rng, &mut ctx);
                 calls += mutation_attempts as u64;
                 if let Some((mut_nodes, origin)) = mutation_result {
-                    if representative_origin.is_none() {
-                        representative_origin = Some(origin.clone());
-                    }
                     if first_bug_at.is_none() {
                         first_bug_at = Some(calls);
                     }
@@ -336,9 +319,6 @@ fn run_main(
                     update_interesting(&mut interesting, origin, mut_nodes);
                 }
             }
-
-            // Minimal native: Phase::Target / TargetingDriver removed.
-            let _ = representative_origin;
         }
     }
 
@@ -595,13 +575,13 @@ fn update_interesting(
 /// `run_test_case(_, _, _, mode, _)` per invocation), so by the time
 /// `run_case` reaches us the mode is already plumbed.
 pub(crate) struct EngineCtx<'a> {
-    run_case: &'a mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult,
+    run_case: &'a mut dyn FnMut(Box<dyn DataSource>, bool),
     tree_root: DetTreeNode,
     cache: HashMap<Vec<ChoiceValueKey>, RunResult>,
 }
 
 impl<'a> EngineCtx<'a> {
-    fn new(run_case: &'a mut dyn FnMut(Box<dyn DataSource>, bool) -> TestCaseResult) -> Self {
+    fn new(run_case: &'a mut dyn FnMut(Box<dyn DataSource>, bool)) -> Self {
         EngineCtx {
             run_case,
             tree_root: DetTreeNode::new(),
@@ -610,13 +590,15 @@ impl<'a> EngineCtx<'a> {
     }
 
     /// Execute one test case via `run_case`, recording the trie and
-    /// returning a [`RunResult`] populated from the [`TestCaseResult`]
-    /// plus the [`NativeTestCase`]'s realized choice nodes.
+    /// returning a [`RunResult`] populated from the outcome reported by the
+    /// data source's `mark_complete` plus the [`NativeTestCase`]'s realized
+    /// choice nodes.
     fn execute(&mut self, ntc: NativeTestCase, is_final: bool) -> RunResult {
         let (data_source, handle) = NativeDataSource::new(ntc);
-        let tc_result = (self.run_case)(Box::new(data_source), is_final);
+        (self.run_case)(Box::new(data_source), is_final);
         let nodes = NativeDataSource::take_nodes(&handle);
         let spans = NativeDataSource::take_spans(&handle);
+        let tc_result = NativeDataSource::take_outcome(&handle);
 
         let (status, failure) = match tc_result {
             TestCaseResult::Valid => (Status::Valid, None),

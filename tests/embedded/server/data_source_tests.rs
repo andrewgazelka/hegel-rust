@@ -72,7 +72,7 @@ fn make_dead_data_source() -> ServerDataSource {
     // Connection::new already returns an Arc<Connection>.
     let conn = Connection::new(Box::new(std::io::empty()), Box::new(write_end));
     let stream = conn.new_stream();
-    ServerDataSource::new(conn, stream, Verbosity::Quiet)
+    ServerDataSource::new(conn, stream, Verbosity::Quiet).0
 }
 
 /// Build a `ServerDataSource` paired with a mock server thread that ack's
@@ -114,7 +114,7 @@ fn make_mocked_data_source(n: usize) -> ServerDataSource {
         }
     });
 
-    ServerDataSource::new(conn, stream, Verbosity::Quiet)
+    ServerDataSource::new(conn, stream, Verbosity::Quiet).0
 }
 
 // ── N8: ServerDataSource::target_observation client-side validation ───────

@@ -500,9 +500,6 @@ pub struct NativeTestCase {
     /// `None` for test cases concluded by [`Self::freeze`] directly
     /// (`Status::Valid`).  Mirrors `ConjectureData.interesting_origin`.
     interesting_origin: Option<InterestingOrigin>,
-    /// Per-test-case targeting observations: maps label to score.
-    /// Populated by `target_observation` calls from the test body.
-    pub target_observations: HashMap<String, f64>,
 }
 
 impl NativeTestCase {
@@ -526,7 +523,6 @@ impl NativeTestCase {
             labels_for_structure_stack: Vec::new(),
             observer: None,
             interesting_origin: None,
-            target_observations: HashMap::new(),
         }
     }
 
@@ -559,7 +555,6 @@ impl NativeTestCase {
             labels_for_structure_stack: Vec::new(),
             observer,
             interesting_origin: None,
-            target_observations: HashMap::new(),
         }
     }
 
@@ -590,7 +585,6 @@ impl NativeTestCase {
             labels_for_structure_stack: Vec::new(),
             observer: None,
             interesting_origin: None,
-            target_observations: HashMap::new(),
         }
     }
 
