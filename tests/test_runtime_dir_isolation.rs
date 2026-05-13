@@ -8,7 +8,9 @@
 
 mod common;
 
+#[cfg(not(feature = "native"))]
 use hegel::Hegel;
+#[cfg(not(feature = "native"))]
 use hegel::generators as gs;
 
 #[test]

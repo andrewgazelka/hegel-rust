@@ -15,7 +15,6 @@
 use std::collections::{HashMap, hash_map::Entry};
 
 use crate::native::det_tree::{ChoiceValueKey, DetTreeNode, record_into};
-use std::sync::Once;
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -81,13 +80,13 @@ fn run_single(
     let (data_source, _handle) = NativeDataSource::new(ntc);
     let result = run_case(Box::new(data_source), true);
     match result {
-        TestCaseResult::Interesting { panic_message, .. } => TestRunResult {
+        TestCaseResult::Interesting(failure) => TestRunResult {
             passed: false,
-            failure_message: Some(panic_message),
+            failures: vec![failure],
         },
         _ => TestRunResult {
             passed: true,
-            failure_message: None,
+            failures: Vec::new(),
         },
     }
 }
@@ -236,8 +235,7 @@ fn run_main(
             }
 
             let batch_rng = SmallRng::from_rng(&mut rng);
-            let prefix =
-                crate::native::data_tree::generate_novel_prefix(&tree_root, &mut rng);
+            let prefix = crate::native::data_tree::generate_novel_prefix(&tree_root, &mut rng);
             let ntc = if prefix.is_empty() {
                 NativeTestCase::new_random(batch_rng)
             } else {
@@ -249,12 +247,7 @@ fn run_main(
 
             let tc_start = std::time::Instant::now();
             let run = ctx.run(ntc);
-            crate::native::data_tree::record_tree(
-                &mut tree_root,
-                &run.nodes,
-                run.status,
-                &[],
-            );
+            crate::native::data_tree::record_tree(&mut tree_root, &run.nodes, run.status, &[]);
             let elapsed = tc_start.elapsed();
             calls += 1;
 
@@ -484,22 +477,32 @@ fn run_main(
     // Some(...)` get captured per origin). Replay in shortlex-descending
     // order: the smallest counterexample is the one observed *last*, so a
     // user-side `Mutex<Option<…>>` that overwrites on each panic ends up
-    // holding the simplest example. The synthetic `failure_message`
-    // returned to `drive` lists every origin's panic so multi-origin
-    // failures aren't silently collapsed to one.
+    // holding the simplest example. Each replay's `Failure` is appended to
+    // the returned `TestRunResult::failures`, which `drive` then turns into
+    // either the single-failure or multi-failure outer panic.
     let mut origins_sorted: Vec<(String, Vec<ChoiceNode>)> = interesting.into_iter().collect();
     origins_sorted.sort_by_key(|origin| std::cmp::Reverse(sort_key(&origin.1)));
 
-    let mut failure_messages: Vec<(String, String)> = Vec::new();
-    for (origin, nodes) in origins_sorted {
+    // Mirror Hypothesis's `report_multiple_bugs` setting: when `false`, drop
+    // all but the smallest origin (the one observed *last* under the
+    // shortlex-descending sort above), so the runner surfaces a single
+    // failure rather than every distinct bug Hegel found.
+    if !settings.report_multiple_failures {
+        if let Some(last) = origins_sorted.pop() {
+            origins_sorted.clear();
+            origins_sorted.push(last);
+        }
+    }
+
+    let mut failures: Vec<crate::backend::Failure> = Vec::new();
+    for (_origin, nodes) in origins_sorted {
         let choices: Vec<ChoiceValue> = nodes.iter().map(|n| n.value.clone()).collect();
         let ntc = NativeTestCase::for_choices(&choices, Some(&nodes), None);
         let run = ctx.run_final(ntc);
 
-        match run.status {
-            Status::Interesting => {
-                let msg = run.panic_message.unwrap_or_else(|| origin.clone());
-                failure_messages.push((origin, msg));
+        match (run.status, run.failure) {
+            (Status::Interesting, Some(failure)) => {
+                failures.push(failure);
             }
             _ => {
                 panic!(
@@ -513,25 +516,9 @@ fn run_main(
         }
     }
 
-    let failure_message = if failure_messages.is_empty() {
-        None
-    } else if failure_messages.len() == 1 {
-        Some(failure_messages.into_iter().next().unwrap().1)
-    } else {
-        // Multi-origin: surface the smallest-shortlex panic message as the
-        // headline (it's the one the user's mutable side-effects most
-        // likely captured) and append the others so they aren't lost.
-        let mut iter = failure_messages.into_iter();
-        let (_, headline) = iter.next_back().unwrap();
-        let extras: String = iter
-            .map(|(o, m)| format!("\n\n[and at {}] {}", o, m))
-            .collect();
-        Some(format!("{}{}", headline, extras))
-    };
-
     TestRunResult {
-        passed: failure_message.is_none(),
-        failure_message,
+        passed: failures.is_empty(),
+        failures,
     }
 }
 
@@ -631,15 +618,13 @@ impl<'a> EngineCtx<'a> {
         let nodes = NativeDataSource::take_nodes(&handle);
         let spans = NativeDataSource::take_spans(&handle);
 
-        let (status, panic_message, origin) = match tc_result {
-            TestCaseResult::Valid => (Status::Valid, None, None),
-            TestCaseResult::Invalid => (Status::Invalid, None, None),
-            TestCaseResult::Overrun => (Status::Invalid, None, None),
-            TestCaseResult::Interesting {
-                panic_message,
-                origin,
-            } => (Status::Interesting, Some(panic_message), origin),
+        let (status, failure) = match tc_result {
+            TestCaseResult::Valid => (Status::Valid, None),
+            TestCaseResult::Invalid => (Status::Invalid, None),
+            TestCaseResult::Overrun => (Status::Invalid, None),
+            TestCaseResult::Interesting(f) => (Status::Interesting, Some(f)),
         };
+        let origin = failure.as_ref().map(|f| f.origin.clone());
 
         record_into(&mut self.tree_root, &nodes);
 
@@ -647,8 +632,8 @@ impl<'a> EngineCtx<'a> {
             status,
             nodes,
             spans,
-            panic_message,
             origin,
+            failure,
         }
     }
 
@@ -832,9 +817,3 @@ fn hash_string(s: &str) -> u64 {
     }
     hash
 }
-
-/// Initialise the shared panic hook. Provided as a re-export so callers
-/// that drove `native_run` historically don't need to reach into
-/// [`crate::run_lifecycle`] themselves.
-#[allow(dead_code)]
-static _NATIVE_PANIC_INIT: Once = Once::new();

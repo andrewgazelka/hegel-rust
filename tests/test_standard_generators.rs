@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "native", allow(unused_imports, dead_code))]
+
 //! Tests verifying that standard generator types can produce examples.
 //!
 //! Each entry checks both the generator itself and a `vecs(generator)` wrapper,
@@ -680,15 +682,18 @@ mod direct_strategies {
 }
 
 mod provisional_strategies {
+    #[cfg(not(feature = "native"))]
     use std::collections::HashSet;
 
+    #[cfg(not(feature = "native"))]
     use regex::Regex;
 
-    use super::common::utils::{
-        assert_all_examples, check_can_generate_examples, expect_panic, find_any,
-    };
+    use super::common::utils::expect_panic;
+    #[cfg(not(feature = "native"))]
+    use super::common::utils::{assert_all_examples, check_can_generate_examples, find_any};
     use hegel::generators::{self as gs, Generator};
 
+    #[cfg(not(feature = "native"))]
     fn url_allowed_chars() -> HashSet<char> {
         ('a'..='z')
             .chain('A'..='Z')

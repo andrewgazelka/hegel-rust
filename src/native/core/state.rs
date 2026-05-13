@@ -50,17 +50,6 @@ impl ManyState {
     }
 }
 
-/// Hypothesis `many()`-style length for atomic collection choices (bytes, strings).
-///
-/// Instead of drawing length uniformly from `[min_size, max_size]` (which produces
-/// huge values when max_size is large), this uses the same geometric distribution
-/// as Hypothesis's `many()` mechanism: length clusters around a small `average_size`
-/// computed as `min(max(min_size * 2, min_size + 5), 0.5 * (min_size + max_size))`.
-///
-/// Hypothesis: `conjecture/providers.py::HypothesisProvider.draw_string` (and
-/// `draw_bytes`). pbtkit's `text.py::_draw_string` uses uniform instead; we match
-/// Hypothesis here as it is the behavioural ground truth.
-
 /// Interesting integer constants seeded from Hypothesis's GLOBAL_CONSTANTS
 /// (providers.py): powers of 2 (2^16..2^65), powers of 10 (10^5..10^19),
 /// factorials (9!..20!), primorials — plus their ±1 neighbours and negations.

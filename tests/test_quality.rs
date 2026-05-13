@@ -41,6 +41,7 @@ mod shrink_quality {
         assert_eq!(s, "");
     }
 
+    #[cfg(not(feature = "native"))]
     #[derive(Debug, Clone, PartialEq)]
     enum Mixed {
         Int(i64),
@@ -812,6 +813,7 @@ mod shrink_quality {
         }
     }
 
+    #[cfg(not(feature = "native"))]
     fn check_lowering_with_gap(gap: i64) {
         let s = gs::tuples!(
             gs::integers::<i64>().min_value(-10).max_value(10),

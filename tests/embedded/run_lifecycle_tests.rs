@@ -73,7 +73,10 @@ fn unknown_panic_info_returns_unknown_placeholders() {
     assert_eq!(thread_name, "<unknown>");
     assert_eq!(thread_id, "?");
     assert_eq!(location, "<unknown>");
-    assert_eq!(backtrace.status(), std::backtrace::BacktraceStatus::Disabled);
+    assert_eq!(
+        backtrace.status(),
+        std::backtrace::BacktraceStatus::Disabled
+    );
 }
 
 #[test]

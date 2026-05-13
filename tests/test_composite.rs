@@ -38,8 +38,10 @@ mod composite {
     //!   strategy return-type warnings, and `typing.overload` respectively.
 
     use super::common::utils::minimal;
+    use hegel::TestCase;
     use hegel::generators as gs;
-    use hegel::{HealthCheck, Hegel, Settings, TestCase};
+    #[cfg(not(feature = "native"))]
+    use hegel::{HealthCheck, Hegel, Settings};
 
     #[hegel::composite]
     fn badly_draw_lists(tc: TestCase, m: i32) -> Vec<i32> {

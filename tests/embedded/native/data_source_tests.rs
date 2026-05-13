@@ -185,5 +185,3 @@ fn target_observation_rejects_duplicate_label() {
     ds.target_observation(1.0, "x");
     ds.target_observation(2.0, "x");
 }
-
-

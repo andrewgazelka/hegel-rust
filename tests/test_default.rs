@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "native", allow(unused_imports, dead_code))]
+
 mod common;
 
 use common::utils::check_can_generate_examples;

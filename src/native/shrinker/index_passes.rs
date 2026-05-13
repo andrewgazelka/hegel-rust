@@ -150,22 +150,16 @@ impl<'a> Shrinker<'a> {
             }
 
             // Also try powers of 2 (and negatives) as raw values. This covers
-            // large index-space jumps that exponential index probing misses
-            // (e.g. `-128.0` for a float test checking `v < -86`).
+            // large index-space jumps that exponential index probing misses.
             for e in 0u32..11 {
                 let magnitude: i128 = 1i128 << e;
                 for &sign in &[1i128, -1] {
-                    let v_int = sign * magnitude;
-                    let mag_f = magnitude as f64;
-                    let v_float = (sign as f64) * mag_f;
-                    for candidate_val in [ChoiceValue::Integer(v_int), ChoiceValue::Float(v_float)]
+                    let candidate_val = ChoiceValue::Integer(sign * magnitude);
+                    if kind.validate(&candidate_val)
+                        && candidate_val != node.value
+                        && !candidates.contains(&candidate_val)
                     {
-                        if kind.validate(&candidate_val)
-                            && candidate_val != node.value
-                            && !candidates.contains(&candidate_val)
-                        {
-                            candidates.push(candidate_val);
-                        }
+                        candidates.push(candidate_val);
                     }
                 }
             }

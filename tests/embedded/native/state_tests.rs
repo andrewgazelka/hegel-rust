@@ -263,7 +263,6 @@ fn spans_index_i64_out_of_range_panics() {
 
 // ── NativeTestCase::as_result returning Overrun ───────────────────────────
 
-
 // ── NativeTestCase::draw_integer_forced ───────────────────────────────────
 
 // ── Spans::get (by non-negative usize index) ──────────────────────────────
@@ -338,7 +337,6 @@ fn spans_as_mut_slice_allows_mutation() {
 struct NoopObserver;
 impl DataObserver for NoopObserver {}
 
-
 // ── NativeTestCase::stop_span with empty stack ────────────────────────────
 
 #[test]
@@ -353,8 +351,6 @@ fn stop_span_on_empty_stack_is_a_no_op() {
 
 // ── NativeResult::Conjecture path in as_result ────────────────────────────
 
-
-
 // ── Observer called in draw_float ─────────────────────────────────────────
 //
 // The `observer` field on `NativeTestCase` is private, so post-draw the
@@ -362,15 +358,11 @@ fn stop_span_on_empty_stack_is_a_no_op() {
 // holds an `Arc<Mutex<...>>` that the test side keeps a clone of —
 // after the draw, the lock contains exactly what the observer captured.
 
-
 // ── Observer called in draw_string ────────────────────────────────────────
-
 
 // ── Observer called in draw_float_forced ─────────────────────────────────
 
-
 // ── Observer called in draw_bytes_forced ─────────────────────────────────
-
 
 // ── N18.core_state: observer notified by draw_bytes (non-forced) ─────────
 //
@@ -380,9 +372,7 @@ fn stop_span_on_empty_stack_is_a_no_op() {
 // site; only that one was exercised. Replay via `for_choices` resolves the
 // draw with was_forced=false, so the non-forced notification fires.
 
-
 // ── Observer called in draw_string_forced ────────────────────────────────
-
 
 // ── DataObserver::draw_boolean default (line 453) ─────────────────────────
 //
@@ -472,27 +462,22 @@ fn stop_span_extends_parent_label_stack() {
 // draw_string with min_size == max_size calls many_draw_length which takes
 // the early return path (line 65: return min_size).
 
-
 // ── draw_float: half-bounded range (lines 1167-1187) ─────────────────────
 //
 // half_bounded = !bounded && (min.is_finite() || max.is_finite()).
 // Use (1.0, f64::INFINITY) so the range is half-bounded from below.
-
 
 // ── draw_float: unbounded range with NaN (lines 1188-1199) ───────────────
 //
 // !bounded && !half_bounded = fully unbounded. allow_nan=true enables the
 // NaN generation branch.
 
-
 // ── draw_string: random generation body (lines 1339-1373) ─────────────────
 //
 // Calling draw_string on a fresh random NTC (no prefix) exercises the
 // random-generation closure.
 
-
 // ── draw_string: min_size==0 path (line 1319) ────────────────────────────
 //
 // The nasty-floats list for draw_string includes Vec::new() when min_size==0
 // and max_size > 0. Line 1319: `v.push(Vec::new())`.
-

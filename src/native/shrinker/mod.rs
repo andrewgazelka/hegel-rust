@@ -20,9 +20,7 @@ mod sequence;
 
 use std::collections::HashMap;
 
-use crate::native::core::{
-    ChoiceNode, ChoiceValue, MAX_SHRINK_ITERATIONS, NodeSortKey, sort_key,
-};
+use crate::native::core::{ChoiceNode, ChoiceValue, MAX_SHRINK_ITERATIONS, NodeSortKey, sort_key};
 
 /// Request passed to the shrinker's test function.
 ///
@@ -187,7 +185,6 @@ impl<'a> Shrinker<'a> {
             self.mutate_and_shrink();
         }
     }
-
 }
 
 /// Binary search for the smallest value in [lo, hi] where f returns true.

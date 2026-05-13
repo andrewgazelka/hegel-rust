@@ -35,13 +35,6 @@ thread_local! {
     /// [`take_panic_info`] right after `catch_unwind` returns.
     static LAST_PANIC_INFO: RefCell<Option<(String, String, String, Backtrace)>> =
         const { RefCell::new(None) };
-
-    /// One-shot flag: when set, the panic hook silently swallows the next
-    /// panic's stderr output. Used by [`drive`] to re-raise a `"Property
-    /// test failed: <msg>"` panic for `catch_unwind` callers and `cargo
-    /// test`'s benefit, without duplicating the user-facing diagnostic
-    /// that the final replay already printed. Cleared by the hook on read.
-    static SUPPRESS_NEXT_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn take_panic_info() -> Option<(String, String, String, Backtrace)> {
@@ -60,13 +53,6 @@ pub(crate) fn init_panic_hook() {
     PANIC_HOOK_INIT.call_once(|| {
         let prev_hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
-            // `drive` sets this when re-raising the bookkeeping
-            // `"Property test failed: ..."` panic. Swallow stderr for
-            // exactly that one panic; the diagnostic was already printed.
-            if SUPPRESS_NEXT_PANIC.with(|c| c.replace(false)) {
-                return;
-            }
-
             if !currently_in_test_context() {
                 prev_hook(info);
                 return;
@@ -345,19 +331,11 @@ pub(crate) fn drive<R, F>(
 
     let quiet = verbosity == crate::runner::Verbosity::Quiet;
 
-    // `SUPPRESS_NEXT_PANIC` swallows stderr output from the re-raise below —
-    // by the time `drive` panics the test context has exited, so without the
-    // flag the previous (default) panic hook would print
-    // `thread '...' panicked at run_lifecycle.rs:NNN` on top of the
-    // diagnostics this function already emitted.
     match result.failures.as_slice() {
         // `test_failed` was set but no Failure surfaced — e.g. an aborted
         // mid-draw test case or a backend that reported failure without
         // attaching a Failure.  Preserve the legacy generic panic.
-        [] => {
-            SUPPRESS_NEXT_PANIC.with(|c| c.set(true));
-            panic!("Property test failed: unknown");
-        }
+        [] => panic!("Property test failed: unknown"),
         // Single-failure path: keep the original output shape so test
         // harnesses that pattern-match on `"Property test failed: <msg>"`
         // (e.g. `Minimal::run` in `tests/common/utils.rs`) keep working.
@@ -365,7 +343,6 @@ pub(crate) fn drive<R, F>(
             if !quiet {
                 eprint!("{}", failure.diagnostic);
             }
-            SUPPRESS_NEXT_PANIC.with(|c| c.set(true));
             panic!("Property test failed: {}", failure.panic_message);
         }
         // Multi-failure path: emit a header, print each replay's
@@ -379,7 +356,6 @@ pub(crate) fn drive<R, F>(
                     eprint!("{}", failure.diagnostic);
                 }
             }
-            SUPPRESS_NEXT_PANIC.with(|c| c.set(true));
             panic!("Property-based test failed with {} distinct failures.", n);
         }
     }

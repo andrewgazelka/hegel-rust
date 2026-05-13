@@ -59,7 +59,6 @@ pub trait ExampleDatabase: Send + Sync {
     /// keyword. The default implementation is `delete` + `save`;
     /// backends may override for atomicity (e.g. `NativeDatabase` uses
     /// `rename`).
-    #[allow(dead_code)]
     fn move_value(&self, src: &[u8], dst: &[u8], value: &[u8]) {
         if src == dst {
             self.save(src, value);
@@ -73,11 +72,8 @@ pub trait ExampleDatabase: Send + Sync {
     /// a `&dyn ExampleDatabase` to their concrete type.
     fn as_any(&self) -> &dyn Any;
 
-    /// Cross-type equality through a trait object. Default: never equal.
-    #[allow(unused_variables, dead_code)]
-    fn db_eq(&self, other: &dyn ExampleDatabase) -> bool {
-        false
-    }
+    /// Cross-type equality through a trait object.
+    fn db_eq(&self, other: &dyn ExampleDatabase) -> bool;
 }
 
 /// Name of the bookkeeping key under which every save() records its
@@ -231,9 +227,6 @@ pub fn serialize_choices(choices: &[ChoiceValue]) -> Vec<u8> {
             ChoiceValue::Boolean(v) => {
                 buf.push(1);
                 buf.push(*v as u8);
-            }
-            ChoiceValue::Float(_) | ChoiceValue::Bytes(_) | ChoiceValue::String(_) => {
-                todo!("serialize_choices: non-integer/boolean variants not yet supported in native mode")
             }
         }
     }

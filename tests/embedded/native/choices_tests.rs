@@ -102,114 +102,6 @@ fn integer_choice_unit_single_value_range() {
     );
 }
 
-// ── FloatChoice::simplest ───────────────────────────────────────────────────
-//
-// Ports of pbtkit/tests/test_floats.py::test_floats_simplest_positive_range,
-// test_float_simplest_with_inf_bounds, test_float_simplest_tiny_range,
-// test_float_simplest_subnormal_range, test_float_simplest_finds_power_of_two,
-// test_float_negative_zero_simplest.
-
-
-
-
-
-
-
-
-
-// ── N18.core_choices: FloatChoice::simplest fall-through paths ───────────
-//
-// When the min/max range admits no finite value, simplest() falls through
-// past the boundary/integer/fraction searches. The remaining branches at
-// choices.rs:279-288 select +/-Infinity (if permitted), NaN (if
-// `allow_nan`), or panic. Existing tests only cover the finite-range
-// happy paths; these exercise the pathological fall-through tail and the
-// matching `unit()` NaN early-return at line 295-297.
-
-
-
-
-// ── FloatChoice::validate ───────────────────────────────────────────────────
-//
-// Port of pbtkit/tests/test_floats.py::test_floats_validate_edge_cases.
-
-
-// ── FloatChoice::sort_index ─────────────────────────────────────────────────
-//
-// Port of pbtkit/tests/test_floats.py::test_floats_sort_key_ordering. Rust's
-// FloatChoice::sort_index returns `(magnitude_index, is_negative)`, which
-// orders values as: smallest non-negative finite < larger non-negative finite
-// < +inf < -inf < NaN. Simpler positive finites sort before more complex ones.
-
-
-// ── FloatChoice::to_index regression ────────────────────────────────────────
-//
-// Regression for a failure surfaced by `tests/pbtkit/choice_index.rs`: a tiny
-// non-integer-spanning range like [65672.5, 65673.0] picks `simplest = 65673.0`
-// (the integer wins under native's Hypothesis-lex sort_key), but the original
-// pbtkit-style raw-index implementation computed `to_index(value)` as
-// `raw_idx(value) - raw_idx(simplest)` — which underflowed because in raw-idx
-// terms 65672.5 < 65672.80222519021 < 65673.0. The fix is to base the index
-// API on the same `sort_key` ordering used elsewhere in native.
-
-
-
-
-
-
-// ── FloatChoice::unit ───────────────────────────────────────────────────────
-//
-// Port of pbtkit/tests/test_floats.py::test_float_choice_unit, adapted to the
-// Rust implementation's (index, is_negative) ordering (the Python version
-// uses (exponent_rank, mantissa, sign)).
-
-
-
-
-// ── BytesChoice ───────────────────────────────────────────────────────────
-//
-// Ports of pbtkit/tests/test_bytes.py::test_bytes_choice_unit and related.
-
-
-
-
-
-
-
-
-// ── StringChoice ──────────────────────────────────────────────────────────
-//
-// Ports of pbtkit/tests/test_text.py::test_string_* and related. Note that
-// `StringChoice::simplest`/`unit` return codepoint sequences (`Vec<u32>`) —
-// the `String` boundary lives one level up in `NativeTestCase::draw_string`.
-
-
-
-
-
-
-
-
-
-// ── StringChoice::unit (single-codepoint alphabet) ────────────────────────
-//
-// Ports of pbtkit/tests/test_text.py::test_string_single_codepoint_unit.
-
-
-
-
-// ── StringChoice index helpers ────────────────────────────────────────────
-//
-// Ports of pbtkit/tests/test_text.py::test_string_from_index_out_of_range,
-// test_string_from_index_past_end, test_string_codepoint_rank_with_surrogates.
-
-
-
-
-
-
-
-
 #[test]
 #[should_panic(expected = "ChoiceKind::to_index: kind/value mismatch")]
 fn choice_kind_to_index_panics_on_kind_value_mismatch() {
@@ -221,4 +113,51 @@ fn choice_kind_to_index_panics_on_kind_value_mismatch() {
         shrink_towards: 0,
     });
     let _ = kind.to_index(&ChoiceValue::Boolean(true));
+}
+
+// ── ChoiceKind::max_children ──────────────────────────────────────────────
+//
+// Ports of `compute_max_children` tests from
+// `hypothesis-python/tests/conjecture/test_utils.py` plus hegel-specific
+// checks for the choice kinds hegel's native engine actually records.
+
+fn bu(n: u64) -> crate::native::bignum::BigUint {
+    crate::native::bignum::BigUint::from(n)
+}
+
+#[test]
+fn integer_bounded_range_gives_exact_count() {
+    let kind = ChoiceKind::Integer(IntegerChoice {
+        min_value: 0,
+        max_value: 200,
+        shrink_towards: 0,
+    });
+    assert_eq!(kind.max_children(), bu(201));
+}
+
+#[test]
+fn integer_negative_range_gives_exact_count() {
+    let kind = ChoiceKind::Integer(IntegerChoice {
+        min_value: -10,
+        max_value: 10,
+        shrink_towards: 0,
+    });
+    assert_eq!(kind.max_children(), bu(21));
+}
+
+#[test]
+fn integer_full_i128_range_is_two_pow_128() {
+    let kind = ChoiceKind::Integer(IntegerChoice {
+        min_value: i128::MIN,
+        max_value: i128::MAX,
+        shrink_towards: 0,
+    });
+    // 2^128 = u128::MAX + 1.
+    let expected = crate::native::bignum::BigUint::from(u128::MAX) + bu(1);
+    assert_eq!(kind.max_children(), expected);
+}
+
+#[test]
+fn boolean_is_always_two() {
+    assert_eq!((ChoiceKind::Boolean(BooleanChoice)).max_children(), bu(2));
 }

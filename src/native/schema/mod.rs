@@ -150,10 +150,7 @@ fn interpret_schema(ntc: &mut NativeTestCase, schema: &Value) -> Result<Value, S
         .expect("Schema must have a \"type\" field");
 
     // Record spans for leaf schemas (no recursive interpret_schema calls).
-    let is_leaf = matches!(
-        schema_type,
-        "integer" | "boolean" | "float" | "string" | "binary" | "sampled_from"
-    );
+    let is_leaf = matches!(schema_type, "integer" | "boolean" | "sampled_from");
     let span_start = if is_leaf { ntc.nodes.len() } else { 0 };
 
     // Minimal native: integer + boolean leaves, plus the compound schemas
@@ -171,8 +168,8 @@ fn interpret_schema(ntc: &mut NativeTestCase, schema: &Value) -> Result<Value, S
         "list" => collections::interpret_list(ntc, schema),
         "dict" => collections::interpret_dict(ntc, schema),
 
-        "string" | "binary" | "float" | "regex" | "email" | "url" | "domain"
-        | "ip_address" | "uuid" | "ipv4" | "ipv6" | "date" | "time" | "datetime" => {
+        "string" | "binary" | "float" | "regex" | "email" | "url" | "domain" | "ip_address"
+        | "uuid" | "ipv4" | "ipv6" | "date" | "time" | "datetime" => {
             todo!("schema {:?} not yet supported in native mode", schema_type)
         }
 

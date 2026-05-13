@@ -26,9 +26,6 @@ use crate::native::core::{ChoiceKind, ChoiceNode, ChoiceValue};
 pub enum ChoiceValueKey {
     Integer(i128),
     Boolean(bool),
-    Float(u64), // f64::to_bits()
-    Bytes(Vec<u8>),
-    String(Vec<u32>),
 }
 
 impl From<&ChoiceValue> for ChoiceValueKey {
@@ -36,9 +33,6 @@ impl From<&ChoiceValue> for ChoiceValueKey {
         match v {
             ChoiceValue::Integer(n) => ChoiceValueKey::Integer(*n),
             ChoiceValue::Boolean(b) => ChoiceValueKey::Boolean(*b),
-            ChoiceValue::Float(f) => ChoiceValueKey::Float(f.to_bits()),
-            ChoiceValue::Bytes(b) => ChoiceValueKey::Bytes(b.clone()),
-            ChoiceValue::String(s) => ChoiceValueKey::String(s.clone()),
         }
     }
 }

@@ -2,18 +2,11 @@
 //
 // Split into submodules:
 //   choices    — choice types (ChoiceKind, ChoiceNode, ChoiceValue, etc.)
-//   float_index — Hypothesis float lex ordering (float_to_index, index_to_float)
 //   state      — NativeTestCase, ManyState, NativeVariables, Span
 
-mod choices;
-pub mod float_index;
+pub(crate) mod choices;
 pub(crate) mod state;
-
-#[allow(unused_imports)]
-pub use choices::{
-    BooleanChoice, ChoiceKind, ChoiceNode, ChoiceValue, IntegerChoice, InterestingOrigin,
-    NodeSortKey, Status, StopTest, sort_key,
-};
+pub use choices::{ChoiceKind, ChoiceNode, ChoiceValue, NodeSortKey, Status, StopTest, sort_key};
 pub use state::{ManyState, NativeTestCase, NativeVariables, Span};
 
 /// Maximum number of choices a single test case can make.

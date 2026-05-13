@@ -516,8 +516,12 @@ mod simple_collections {
 mod nocover_sets {
     use std::collections::HashSet;
 
-    use super::common::utils::{assert_all_examples, find_any};
-    use hegel::generators::{self as gs, Generator};
+    use super::common::utils::assert_all_examples;
+    #[cfg(not(feature = "native"))]
+    use super::common::utils::find_any;
+    use hegel::generators as gs;
+    #[cfg(not(feature = "native"))]
+    use hegel::generators::Generator;
 
     #[cfg(not(feature = "native"))]
     #[test]

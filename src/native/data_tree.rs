@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 
-use rand::seq::SliceRandom;
 use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
 
 use crate::native::bignum::BigUint;
 use crate::native::core::{ChoiceKind, ChoiceNode, ChoiceValue, Status};
@@ -22,9 +22,6 @@ use crate::native::core::{ChoiceKind, ChoiceNode, ChoiceValue, Status};
 enum ChoiceValueKey {
     Integer(i128),
     Boolean(bool),
-    Float(u64),
-    Bytes(Vec<u8>),
-    String(Vec<u32>),
 }
 
 impl From<&ChoiceValue> for ChoiceValueKey {
@@ -32,9 +29,6 @@ impl From<&ChoiceValue> for ChoiceValueKey {
         match v {
             ChoiceValue::Integer(n) => ChoiceValueKey::Integer(*n),
             ChoiceValue::Boolean(b) => ChoiceValueKey::Boolean(*b),
-            ChoiceValue::Float(f) => ChoiceValueKey::Float(f.to_bits()),
-            ChoiceValue::Bytes(b) => ChoiceValueKey::Bytes(b.clone()),
-            ChoiceValue::String(s) => ChoiceValueKey::String(s.clone()),
         }
     }
 }
@@ -171,7 +165,7 @@ fn pick_non_exhausted_value(
     rng: &mut SmallRng,
 ) -> Option<ChoiceValue> {
     for _ in 0..10 {
-        let value = kind.random_value(rng)?;
+        let value = kind.random_value(rng);
         let key = ChoiceValueKey::from(&value);
         match children.get(&key) {
             Some(child) if child.is_exhausted => continue,
