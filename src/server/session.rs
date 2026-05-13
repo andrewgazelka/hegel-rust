@@ -296,7 +296,8 @@ impl TestRunner for ServerTestRunner {
             "seed" => settings.seed.map_or(Value::Null, Value::from),
             "stream_id" => test_stream.stream_id,
             "database_key" => database_key_bytes,
-            "derandomize" => settings.derandomize
+            "derandomize" => settings.derandomize,
+            "report_multiple_failures" => settings.report_multiple_failures
         };
         let db_value = match &settings.database {
             Database::Unset => Option::None, // nocov
