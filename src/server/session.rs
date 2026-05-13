@@ -1,4 +1,4 @@
-use crate::backend::{DataSource, TestCaseResult, TestRunResult, TestRunner};
+use crate::backend::{DataSource, Failure, TestCaseResult, TestRunResult, TestRunner};
 use crate::cbor_utils::{as_bool, as_text, as_u64, cbor_map, map_get, map_insert};
 use crate::runner::{Database, HealthCheck, Mode, Phase, Settings, Verbosity};
 use crate::server::protocol::{Connection, HANDSHAKE_STRING, Stream};
@@ -208,7 +208,7 @@ impl ServerTestRunner {
         }
 
         let ack_null = cbor_map! {"result" => Value::Null};
-        let mut failure_message: Option<String> = None;
+        let mut failures: Vec<Failure> = Vec::new();
         let mut passed = true;
 
         loop {
@@ -242,9 +242,9 @@ impl ServerTestRunner {
                     ));
                     let tc_result = run_case(backend, true);
 
-                    if let TestCaseResult::Interesting { panic_message } = tc_result {
+                    if let TestCaseResult::Interesting(failure) = tc_result {
                         passed = false;
-                        failure_message = Some(panic_message);
+                        failures.push(failure);
                     }
                 }
                 "test_done" => {
@@ -260,10 +260,7 @@ impl ServerTestRunner {
             }
         }
 
-        TestRunResult {
-            passed,
-            failure_message,
-        }
+        TestRunResult { passed, failures }
     }
 }
 
@@ -419,7 +416,7 @@ impl TestRunner for ServerTestRunner {
         }
 
         // Process final replay test cases (one per interesting example)
-        let mut failure_message: Option<String> = None;
+        let mut failures: Vec<Failure> = Vec::new();
         for _ in 0..n_interesting {
             let (event_id, event_payload) = test_stream
                 .receive_request()
@@ -446,8 +443,8 @@ impl TestRunner for ServerTestRunner {
             ));
             let tc_result = run_case(backend, true);
 
-            if let TestCaseResult::Interesting { panic_message } = tc_result {
-                failure_message = Some(panic_message);
+            if let TestCaseResult::Interesting(failure) = tc_result {
+                failures.push(failure);
             }
 
             if connection.server_has_exited() {
@@ -459,10 +456,7 @@ impl TestRunner for ServerTestRunner {
             .and_then(as_bool)
             .unwrap_or(true);
 
-        TestRunResult {
-            passed,
-            failure_message,
-        }
+        TestRunResult { passed, failures }
     }
 }
 
