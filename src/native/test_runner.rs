@@ -490,17 +490,7 @@ fn run_main(
             (Status::Interesting, Some(failure)) => {
                 failures.push(failure);
             }
-            // nocov start
-            _ => {
-                panic!(
-                    "Flaky test detected: Your test produced different outcomes \
-                     when run with the same generated data — it failed when it \
-                     previously succeeded, or succeeded when it previously failed. \
-                     This usually means your test depends on external state such as \
-                     global variables, system time, or external random number generators."
-                );
-            }
-            // nocov end
+            _ => flaky_final_replay_panic(), // nocov
         }
     }
 
@@ -524,6 +514,19 @@ fn run_main(
 /// pins this behaviour at exactly 2 calls (replay + final replay).
 const MIN_TEST_CALLS: u64 = 10;
 const POST_BUG_EXTRA_CALLS: u64 = 1000;
+
+// nocov start
+#[cold]
+fn flaky_final_replay_panic() -> ! {
+    panic!(
+        "Flaky test detected: Your test produced different outcomes \
+         when run with the same generated data — it failed when it \
+         previously succeeded, or succeeded when it previously failed. \
+         This usually means your test depends on external state such as \
+         global variables, system time, or external random number generators."
+    );
+}
+// nocov end
 
 fn should_generate_more(
     no_bug_yet: bool,
