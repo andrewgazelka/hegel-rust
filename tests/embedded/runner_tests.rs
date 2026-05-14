@@ -1,6 +1,13 @@
 use super::*;
 use crate::runner::Phase;
 
+// Serialize the three tests below that mutate process-global CI env
+// vars.  Without a lock, `cargo test`'s parallelism can interleave one
+// test's "set TEAMCITY_VERSION" with another test's "remove
+// TEAMCITY_VERSION", and `Settings::new()`'s CI detection sees the
+// wrong state.
+static CI_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_settings_verbosity() {
     let _ = Settings::new().verbosity(Verbosity::Debug);
@@ -40,6 +47,7 @@ fn test_is_in_ci_some_expected_variant() {
     // Removing "CI" (a None-type entry) forces the iterator to continue and
     // evaluate the Some("true") entries such as TF_BUILD and GITHUB_ACTIONS,
     // exercising the `Some(expected)` match arm in is_in_ci().
+    let _guard = CI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let ci = std::env::var_os("CI");
     unsafe {
         std::env::remove_var("CI");
@@ -69,6 +77,8 @@ fn test_native_engine_creates_default_dot_hegel_when_database_unset() {
     use crate::Hegel;
     use crate::generators as gs;
     use crate::runner::Database;
+
+    let _guard = CI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     const CI_VAR_NAMES: &[&str] = &[
         "CI",
@@ -120,6 +130,7 @@ fn test_native_engine_creates_default_dot_hegel_when_database_unset() {
 fn test_settings_new_in_ci_disables_database() {
     // Temporarily set a CI env var so is_in_ci() returns true.
     // Using TEAMCITY_VERSION (checked with None, i.e. any value suffices).
+    let _guard = CI_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let key = "TEAMCITY_VERSION";
     let had_key = std::env::var_os(key).is_some();
     unsafe {
