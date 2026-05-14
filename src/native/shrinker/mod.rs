@@ -88,7 +88,8 @@ impl<'a> Shrinker<'a> {
             return true;
         }
         if let Some(max) = self.max_improvements {
-            // nocov start — `max_improvements` is only set in tests
+            // `max_improvements` is only set in tests.
+            // nocov start
             if self.improvements >= max {
                 return false;
             }
@@ -113,7 +114,8 @@ impl<'a> Shrinker<'a> {
     /// Port of pbtkit's `shrinker.test_function(TestCase(prefix=..., random=...))`.
     pub(super) fn probe(&mut self, prefix: &[ChoiceValue], seed: u64, max_size: usize) {
         if let Some(max) = self.max_improvements {
-            // nocov start — `max_improvements` is only set in tests
+            // `max_improvements` is only set in tests.
+            // nocov start
             if self.improvements >= max {
                 return;
             }

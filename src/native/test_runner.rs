@@ -279,10 +279,11 @@ fn run_main(
                 invalid_calls = 0;
             }
 
-            // nocov start — the TooSlow guard short-circuits on the
-            // 1 s wall-clock threshold, which the in-process test
-            // harness rarely reaches; covering the `suppress_health_check`
-            // tail requires deliberately stalling the test body.
+            // The TooSlow guard short-circuits on the 1 s wall-clock
+            // threshold, which the in-process test harness rarely
+            // reaches; covering the `suppress_health_check` tail
+            // requires deliberately stalling the test body.
+            // nocov start
             if valid_test_cases < HEALTH_CHECK_MAX_VALID
                 && total_test_time > TOO_SLOW_THRESHOLD
                 && !settings
@@ -498,7 +499,8 @@ fn run_main(
                      This usually means your test depends on external state such as \
                      global variables, system time, or external random number generators."
                 );
-            } // nocov end
+            }
+            // nocov end
         }
     }
 

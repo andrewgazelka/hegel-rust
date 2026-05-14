@@ -255,9 +255,10 @@ impl<'a> Shrinker<'a> {
                     })
                     .collect();
 
-                // nocov start — defensive edge case: only reached when a
-                // prior shrink removed enough integer nodes that
+                // Defensive edge case: only reached when a prior
+                // shrink removed enough integer nodes that
                 // `pair_idx + gap` overshoots the new length.
+                // nocov start
                 if pair_idx + gap >= current_ints.len() {
                     if pair_idx == 0 {
                         break;

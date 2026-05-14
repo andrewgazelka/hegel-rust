@@ -181,12 +181,10 @@ fn pick_non_exhausted_value(
         })
         .collect();
     if untried.is_empty() {
-        // nocov start — `check_exhausted` propagates exhausted-ness
-        // up the tree as soon as every child is exhausted, so by the
-        // time we reach here the caller would already have stopped
-        // walking.
-        return None;
-        // nocov end
+        // `check_exhausted` propagates exhausted-ness up the tree as
+        // soon as every child is exhausted, so by the time we reach
+        // here the caller would already have stopped walking.
+        return None; // nocov
     }
     untried.shuffle(rng);
     untried.into_iter().next()

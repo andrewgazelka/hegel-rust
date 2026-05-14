@@ -160,8 +160,9 @@ impl ExampleDatabase for NativeDatabase {
             self.save(METAKEYS_NAME, dst);
         }
         let dst_dir = self.key_path(dst);
-        // nocov start — filesystem permission denial; the dst_dir
-        // create_dir_all call always succeeds in the test harness.
+        // Filesystem permission denial; the dst_dir create_dir_all
+        // call always succeeds in the test harness.
+        // nocov start
         if std::fs::create_dir_all(&dst_dir).is_err() {
             self.delete(src, value);
             self.save(dst, value);
