@@ -1,4 +1,4 @@
-RELEASE_TYPE: minor
+RELEASE_TYPE: patch
 
 The native backend (`--features native`) now supports floating-point
 generators: `gs::floats::<f32>()` and `gs::floats::<f64>()` work on native,
