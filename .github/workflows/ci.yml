@@ -93,10 +93,24 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install ${{ matrix.rust }} --profile minimal && rustup default ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # The `test-native (stable, macos)` cache restored a
+          # `~/.cargo/bin/cargo` that ran as `rustup-init`, breaking
+          # every subsequent `cargo test` on that matrix cell.  Skip
+          # caching `${CARGO_HOME}/bin` entirely so the rustup proxies
+          # come from the just-installed toolchain.
+          cache-bin: false
 
       - uses: ./.github/actions/install-tools
         with:
           tools: just uv
+
+      - name: Debug cargo / rustc
+        run: |
+          which cargo
+          cargo --version
+          rustc --version
+          rustup show
 
       - name: Run tests
         run: just check-tests-native
