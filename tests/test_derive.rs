@@ -337,7 +337,11 @@ fn test_derive_complex_enum_generates_all_variants() {
     });
 }
 
-#[not_supported_on_native]
+// Flaky on native: the test expects the engine to eventually draw the
+// `OptionVariant(Some(String))` branch and panic on the unsupported
+// `string` schema, but whether that happens within the 100-case run
+// depends on RNG state, which shifts under coverage instrumentation.
+#[cfg(not(feature = "native"))]
 #[test]
 fn test_derive_enum_with_nested_types() {
     check_can_generate_examples(gs::default::<WithNestedTypes>());

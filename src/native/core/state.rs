@@ -26,28 +26,33 @@ pub struct ManyState {
 
 impl ManyState {
     pub fn new(min_size: usize, max_size: Option<usize>) -> Self {
-        let max_f = max_size.map_or(f64::INFINITY, |n| n as f64);
-        let min_f = min_size as f64;
-        let average = f64::min(f64::max(min_f * 2.0, min_f + 5.0), 0.5 * (min_f + max_f));
-        let desired_extra = average - min_f;
-        let max_extra = max_f - min_f;
-
-        let p_continue = if desired_extra >= max_extra {
-            0.99
-        } else if max_f.is_infinite() {
-            1.0 - 1.0 / (1.0 + desired_extra)
-        } else {
-            1.0 - 1.0 / (2.0 + desired_extra)
-        };
-
         ManyState {
             min_size,
-            max_size: max_f,
-            p_continue,
+            max_size: max_size.map_or(f64::INFINITY, |n| n as f64),
+            p_continue: length_p_continue(min_size, max_size),
             count: 0,
             rejections: 0,
             force_stop: false,
         }
+    }
+}
+
+/// Probability of extending a length draw beyond its current size. Port of
+/// Hypothesis's `many()`: length clusters around an `average_size` derived
+/// from `min(max(min_size * 2, min_size + 5), 0.5 * (min_size + max_size))`.
+pub(crate) fn length_p_continue(min_size: usize, max_size: Option<usize>) -> f64 {
+    let max_f = max_size.map_or(f64::INFINITY, |n| n as f64);
+    let min_f = min_size as f64;
+    let average = f64::min(f64::max(min_f * 2.0, min_f + 5.0), 0.5 * (min_f + max_f));
+    let desired_extra = average - min_f;
+    let max_extra = max_f - min_f;
+
+    if desired_extra >= max_extra {
+        0.99
+    } else if max_f.is_infinite() {
+        1.0 - 1.0 / (1.0 + desired_extra)
+    } else {
+        1.0 - 1.0 / (2.0 + desired_extra)
     }
 }
 
@@ -99,9 +104,8 @@ static GLOBAL_CONSTANTS_INTEGERS: LazyLock<Vec<i128>> = LazyLock::new(|| {
 /// Geometric-distribution length draw for variable-length collections.
 ///
 /// Drawing length uniformly from `[min_size, max_size]` produces huge
-/// values when `max_size` is large. This matches Hypothesis's `many()`
-/// distribution: length clusters around a small `average_size` derived
-/// from `min(max(min_size * 2, min_size + 5), 0.5 * (min_size + max_size))`.
+/// values when `max_size` is large; instead, the size follows a geometric
+/// variate with stop probability derived from [`length_p_continue`].
 ///
 /// Hypothesis: `conjecture/providers.py::HypothesisProvider.draw_bytes`
 /// (and `draw_string`).
@@ -109,12 +113,15 @@ fn many_draw_length(rng: &mut SmallRng, min_size: usize, max_size: usize) -> usi
     if min_size == max_size {
         return min_size;
     }
-    let many = ManyState::new(min_size, Some(max_size));
-    let mut len = min_size;
-    while len < max_size && rng.random::<f64>() < many.p_continue {
-        len += 1;
-    }
-    len
+    let p_continue = length_p_continue(min_size, Some(max_size));
+    // Geometric variate: `extra ~ floor(log(U) / log(p_continue))` for
+    // `U ~ Uniform(0, 1)`. `rng.random::<f64>()` returns `[0, 1)`, so `U`
+    // can be exactly `0` — that yields `-inf / log(p) = +inf` which
+    // saturates to `usize::MAX` via the float cast; the final `.min` clamps.
+    let u: f64 = rng.random();
+    let extra = (u.ln() / p_continue.ln()).floor();
+    assert!(extra >= 0.0);
+    min_size.saturating_add(extra as usize).min(max_size)
 }
 
 /// Boundary-biased uniform sample for integers.

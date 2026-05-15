@@ -555,7 +555,7 @@ pub enum ChoiceValue {
 }
 
 /// Bit-exact equality for floats keeps `-0.0` distinct from `0.0` and
-/// preserves NaN payloads; integers, booleans and bytes use natural equality.
+/// preserves NaN payloads; other choice types use natural equality.
 impl PartialEq for ChoiceValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
